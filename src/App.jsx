@@ -440,9 +440,24 @@ function Field({ label, children }) {
   );
 }
 
-// ─── MAIN APP (FIREBASE INTEGRATED) ───────────────────────────────────────────
+// ─── MAIN APP (FIREBASE INTEGRATED & SESSION PERSISTENCE) ──────────────────
 export default function App() {
-  const [user, setUser] = useState(null);
+  // Read from local storage on initial load so refresh doesn't log them out
+  const [user, setUser] = useState(() => {
+    const saved = localStorage.getItem("activeUser");
+    return saved ? JSON.parse(saved) : null;
+  });
+  
+  // Custom login/logout functions to save to storage
+  const handleLogin = (u) => {
+    localStorage.setItem("activeUser", JSON.stringify(u));
+    setUser(u);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("activeUser");
+    setUser(null);
+  };
   
   // Local state for Firebase data
   const [expenses, setExpenses] = useState([]);
@@ -472,7 +487,7 @@ export default function App() {
     };
   }, []);
 
-  if (!user) return <Login onLogin={setUser} />;
+  if (!user) return <Login onLogin={handleLogin} />;
 
   const isAdmin = user.role === "admin";
   const myRequests = requests.filter(r => r.engineerId === user.id);
@@ -510,7 +525,7 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Avatar user={user} size={32} />
             <div><div style={{ color: "#fff", fontSize: 13, fontWeight: 600, lineHeight: 1 }}>{user.name}</div><div style={{ color: "#64748B", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>{user.role}</div></div>
-            <button onClick={() => setUser(null)} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 8, color: "#94A3B8", padding: "6px 12px", cursor: "pointer", fontSize: 12, fontFamily: "'DM Sans', sans-serif", marginLeft: 8 }}>Sign out</button>
+            <button onClick={handleLogout} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 8, color: "#94A3B8", padding: "6px 12px", cursor: "pointer", fontSize: 12, fontFamily: "'DM Sans', sans-serif", marginLeft: 8 }}>Sign out</button>
           </div>
         </div>
       </div>
