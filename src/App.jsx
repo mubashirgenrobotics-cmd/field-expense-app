@@ -61,45 +61,15 @@ const compressImage = (file) => {
   });
 };
 
-// ─── RECEIPT DOWNLOAD ─────────────────────────────────────────────────────────
-function downloadReceipt(exp) {
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Receipt - ${exp.description}</title>
-  <style>
-    body { font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; color: #1a1a1a; }
-    .header { text-align: center; border-bottom: 2px solid #1E40AF; padding-bottom: 20px; margin-bottom: 24px; }
-    .logo { font-size: 28px; font-weight: 800; color: #1E40AF; }
-    .subtitle { color: #6B7280; font-size: 13px; margin-top: 4px; }
-    .badge { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; background: #D1FAE5; color: #065F46; }
-    .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #F3F4F6; font-size: 14px; }
-    .row:last-child { border-bottom: none; }
-    .label { color: #6B7280; }
-    .value { font-weight: 600; }
-    .amount-box { background: #EFF6FF; border-radius: 12px; padding: 20px; text-align: center; margin: 24px 0; }
-    .amount { font-size: 32px; font-weight: 800; color: #1E40AF; }
-    .footer { text-align: center; color: #9CA3AF; font-size: 12px; margin-top: 32px; }
-    ${exp.editLog && exp.editLog.length ? `.edit-log { background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 10px; padding: 14px; margin-top: 20px; }
-    .edit-log h4 { margin: 0 0 10px; color: #92400E; font-size: 13px; }
-    .edit-entry { font-size: 12px; color: #78350F; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #FDE68A; }
-    .edit-entry:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }` : ""}
-  </style></head><body>
-  <div class="header"><div class="logo">⚡ FieldExpense Pro</div><div class="subtitle">Official Expense Receipt</div></div>
-  <div style="text-align:right; margin-bottom:16px;"><span class="badge">${exp.status.toUpperCase()}</span></div>
-  <div class="amount-box"><div style="color:#6B7280;font-size:13px;margin-bottom:6px;">Approved Amount</div><div class="amount">${fmt(exp.amount)}</div></div>
-  <div class="row"><span class="label">Engineer</span><span class="value">${exp.engineerName}</span></div>
-  <div class="row"><span class="label">Description</span><span class="value">${exp.description}</span></div>
-  <div class="row"><span class="label">Category</span><span class="value">${CATEGORIES.find(c => c.id === exp.category)?.label || exp.category}</span></div>
-  <div class="row"><span class="label">Date</span><span class="value">${exp.date}</span></div>
-  <div class="row"><span class="label">Receipt ID</span><span class="value">#${exp.id.toUpperCase()}</span></div>
-  ${exp.editLog && exp.editLog.length ? `<div class="edit-log"><h4>📝 Edit History</h4>${exp.editLog.map(e => `<div class="edit-entry"><strong>${e.date}</strong> · Amount changed from ${fmt(e.before)} → ${fmt(e.after)}<br/><em>Admin note: ${e.comment}</em></div>`).join("")}</div>` : ""}
-  <div class="footer">Generated on ${new Date().toLocaleString("en-IN")} · FieldExpense Pro</div>
-  </body></html>`;
-  const blob = new Blob([html], { type: "text/html" });
-  const url = URL.createObjectURL(blob);
+// ─── ATTACHMENT DOWNLOAD ──────────────────────────────────────────────────────
+function downloadAttachment(exp) {
+  if (!exp.attachment) return;
   const a = document.createElement("a");
-  a.href = url;
-  a.download = `receipt-${exp.id}.html`;
+  a.href = exp.attachment;
+  // Determine extension from data URL or file name
+  const ext = exp.attachName ? exp.attachName.split(".").pop() : (exp.attachment.startsWith("data:image/png") ? "png" : exp.attachment.startsWith("data:application/pdf") ? "pdf" : "jpg");
+  a.download = `bill-${exp.engineerName.replace(/\s+/g, "_")}-${exp.date}-${exp.id}.${ext}`;
   a.click();
-  URL.revokeObjectURL(url);
 }
 
 // ─── COMPONENTS ───────────────────────────────────────────────────────────────
@@ -324,13 +294,14 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem }) {
 }
 
 // ─── CONFIRM DELETE MODAL ─────────────────────────────────────────────────────
-function ConfirmDeleteModal({ item, onConfirm, onClose }) {
+function ConfirmDeleteModal({ item, itemType, onConfirm, onClose }) {
+  const label = itemType === "request" ? `fund request of ${fmt(item.amount)}` : `expense "${item.description}" (${fmt(item.amount)})`;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
       <Card style={{ width: "100%", maxWidth: 360 }}>
-        <h3 style={{ margin: "0 0 12px", fontSize: 18, fontWeight: 700 }}>🗑️ Delete Expense</h3>
+        <h3 style={{ margin: "0 0 12px", fontSize: 18, fontWeight: 700 }}>🗑️ Delete {itemType === "request" ? "Request" : "Expense"}</h3>
         <p style={{ fontSize: 14, color: "#4B5563", margin: "0 0 20px" }}>
-          Are you sure you want to delete <strong>{item.description}</strong> ({fmt(item.amount)}) by {item.engineerName}? This cannot be undone.
+          Are you sure you want to delete the {label} by <strong>{item.engineerName}</strong>? This cannot be undone.
         </p>
         <div style={{ display: "flex", gap: 10 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
@@ -381,8 +352,8 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
                   {exp.attachment && <Button small variant="ghost" onClick={() => onViewAttachment(exp)}>📎 Bill</Button>}
                   {!isAdmin && exp.status === "pending" && <Button small variant="outline" onClick={() => onEdit(exp)}>Edit</Button>}
                   {isAdmin && exp.status === "pending" && <Button small variant="primary" onClick={() => onReview(exp)}>Review</Button>}
-                  {/* CHANGE 6: Download receipt for admin */}
-                  {isAdmin && exp.status === "approved" && <Button small variant="ghost" onClick={() => downloadReceipt(exp)}>⬇️ Receipt</Button>}
+                  {/* Download attachment for admin */}
+                  {isAdmin && exp.attachment && <Button small variant="ghost" onClick={() => downloadAttachment(exp)}>⬇️ Bill</Button>}
                   {/* CHANGE 3: Delete option for admin */}
                   {isAdmin && <Button small variant="danger" onClick={() => onDelete(exp)}>🗑️</Button>}
                 </div>
@@ -407,7 +378,7 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
   );
 }
 
-function RequestList({ requests, isAdmin, engineerId, filter, onReview }) {
+function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete }) {
   // CHANGE 1: Sort by latest first
   const filtered = requests.filter(r => {
     if (!isAdmin && r.engineerId !== engineerId) return false;
@@ -439,7 +410,13 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview }) {
                 {isAdmin && <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>By: {req.engineerName} · {req.date}</div>}
               </div>
               {isAdmin && req.status === "pending" && (
-                <div style={{ flexShrink: 0 }}><Button small variant="primary" onClick={() => onReview(req)}>Review</Button></div>
+                <div style={{ flexShrink: 0, display: "flex", gap: 6 }}>
+                  <Button small variant="primary" onClick={() => onReview(req)}>Review</Button>
+                  <Button small variant="danger" onClick={() => onDelete(req)}>🗑️</Button>
+                </div>
+              )}
+              {isAdmin && req.status !== "pending" && (
+                <div style={{ flexShrink: 0 }}><Button small variant="danger" onClick={() => onDelete(req)}>🗑️</Button></div>
               )}
             </div>
             {/* CHANGE 5: Show edit log for requests too */}
@@ -462,16 +439,22 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview }) {
 }
 
 // ─── ADMIN DASHBOARD SUMMARY ──────────────────────────────────────────────────
-function AdminSummary({ expenses, requests, reservedFund }) {
+function AdminSummary({ expenses, requests, reservedFund, dashMonth }) {
   const engineers = USERS.filter(u => u.role === "engineer");
 
-  // CHANGE 4: Reserved fund totals
-  const totalDisbursed = requests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
-  const remainingReserved = reservedFund - totalDisbursed;
+  // Filter by selected month (or all)
+  const filterByMonth = (items) => dashMonth === "all" ? items : items.filter(i => monthOf(i.date) === dashMonth);
 
-  // CHANGE 4: Bills summary
-  const approvedBills = expenses.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
-  const pendingBills = expenses.filter(e => e.status === "pending").reduce((s, e) => s + e.amount, 0);
+  const mRequests = filterByMonth(requests);
+  const mExpenses = filterByMonth(expenses);
+
+  const totalDisbursed = mRequests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
+  const remainingReserved = reservedFund - requests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0); // always total reserved minus all-time disbursed
+
+  // Total submitted bills = approved + pending expenses (all submitted, not rejected)
+  const totalSubmittedBills = mExpenses.filter(e => e.status !== "rejected").reduce((s, e) => s + e.amount, 0);
+  // Pending bills = total distributed (approved fund requests for month) - total submitted bills
+  const pendingBillsAmount = totalDisbursed - totalSubmittedBills;
 
   return (
     <>
@@ -479,18 +462,26 @@ function AdminSummary({ expenses, requests, reservedFund }) {
       <Card style={{ marginBottom: 20, background: "linear-gradient(135deg,#0F172A,#1E1B4B)", border: "none" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
           <div style={{ color: "#fff" }}><div style={{ fontSize: 12, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Reserved Fund Pool</div><div style={{ fontSize: 28, fontWeight: 800, color: "#60A5FA" }}>{fmt(reservedFund)}</div></div>
-          <div style={{ width: 1, height: 50, background: "rgba(255,255,255,0.1)", display: window.innerWidth > 600 ? "block" : "none" }} />
-          <div style={{ textAlign: "center" }}><div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 4 }}>Distributed</div><div style={{ fontSize: 20, fontWeight: 700, color: "#F59E0B" }}>{fmt(totalDisbursed)}</div></div>
-          <div style={{ width: 1, height: 50, background: "rgba(255,255,255,0.1)", display: window.innerWidth > 600 ? "block" : "none" }} />
-          <div style={{ textAlign: "center" }}><div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 4 }}>Remaining</div><div style={{ fontSize: 20, fontWeight: 700, color: remainingReserved < 0 ? "#EF4444" : "#10B981" }}>{fmt(remainingReserved)}</div></div>
-          <div style={{ width: 1, height: 50, background: "rgba(255,255,255,0.1)", display: window.innerWidth > 600 ? "block" : "none" }} />
-          <div style={{ textAlign: "center" }}><div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 4 }}>Approved Bills</div><div style={{ fontSize: 20, fontWeight: 700, color: "#EF4444" }}>{fmt(approvedBills)}</div></div>
-          <div style={{ width: 1, height: 50, background: "rgba(255,255,255,0.1)", display: window.innerWidth > 600 ? "block" : "none" }} />
-          <div style={{ textAlign: "center" }}><div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 4 }}>Pending Bills</div><div style={{ fontSize: 20, fontWeight: 700, color: "#F59E0B" }}>{fmt(pendingBills)}</div></div>
+          <div style={{ width: 1, height: 50, background: "rgba(255,255,255,0.1)" }} />
+          <div style={{ textAlign: "center" }}><div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 4 }}>Distributed{dashMonth !== "all" ? " (month)" : ""}</div><div style={{ fontSize: 20, fontWeight: 700, color: "#F59E0B" }}>{fmt(totalDisbursed)}</div></div>
+          <div style={{ width: 1, height: 50, background: "rgba(255,255,255,0.1)" }} />
+          <div style={{ textAlign: "center" }}><div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 4 }}>Remaining (All-time)</div><div style={{ fontSize: 20, fontWeight: 700, color: remainingReserved < 0 ? "#EF4444" : "#10B981" }}>{fmt(remainingReserved)}</div></div>
+          <div style={{ width: 1, height: 50, background: "rgba(255,255,255,0.1)" }} />
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 4 }}>Total Submitted Bills</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#EF4444" }}>{fmt(totalSubmittedBills)}</div>
+            <div style={{ fontSize: 10, color: "#94A3B8" }}>approved + pending</div>
+          </div>
+          <div style={{ width: 1, height: 50, background: "rgba(255,255,255,0.1)" }} />
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 4 }}>Unsubmitted Bills</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: pendingBillsAmount < 0 ? "#EF4444" : "#F59E0B" }}>{fmt(Math.max(0, pendingBillsAmount))}</div>
+            <div style={{ fontSize: 10, color: "#94A3B8" }}>distributed − submitted</div>
+          </div>
         </div>
         {reservedFund > 0 && (
           <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 8, height: 8, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${Math.min(100, (totalDisbursed / reservedFund) * 100)}%`, background: "linear-gradient(90deg,#3B82F6,#7C3AED)", borderRadius: 8, transition: "width 0.5s" }} />
+            <div style={{ height: "100%", width: `${Math.min(100, (requests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0) / reservedFund) * 100)}%`, background: "linear-gradient(90deg,#3B82F6,#7C3AED)", borderRadius: 8, transition: "width 0.5s" }} />
           </div>
         )}
       </Card>
@@ -498,16 +489,20 @@ function AdminSummary({ expenses, requests, reservedFund }) {
       {/* Per-engineer breakdown */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14, marginBottom: 24 }}>
         {engineers.map(eng => {
-          const spent = expenses.filter(e => e.engineerId === eng.id && e.status === "approved").reduce((s, e) => s + e.amount, 0);
-          const funds = requests.filter(r => r.engineerId === eng.id && r.status === "approved").reduce((s, r) => s + r.amount, 0);
-          const bal = funds - spent;
-          const pendingBillsEng = expenses.filter(e => e.engineerId === eng.id && e.status === "pending").reduce((s, e) => s + e.amount, 0);
+          const engReqs = mRequests.filter(r => r.engineerId === eng.id);
+          const engExps = mExpenses.filter(e => e.engineerId === eng.id);
+          const funds = engReqs.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
+          const approvedBills = engExps.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
+          const submittedBills = engExps.filter(e => e.status !== "rejected").reduce((s, e) => s + e.amount, 0);
+          const bal = funds - approvedBills;
+          const pendingBillsEng = engExps.filter(e => e.status === "pending").reduce((s, e) => s + e.amount, 0);
           return (
             <Card key={eng.id} style={{ padding: 16 }}>
               <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}><Avatar user={eng} size={36} /><div><div style={{ fontWeight: 700, fontSize: 14 }}>{eng.name}</div><div style={{ fontSize: 11, color: "#9CA3AF" }}>{eng.department}</div></div></div>
               <div style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Funds</span><span style={{ color: "#10B981", fontWeight: 700 }}>{fmt(funds)}</span></div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Approved Bills</span><span style={{ color: "#EF4444", fontWeight: 700 }}>{fmt(spent)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Funds Distributed</span><span style={{ color: "#10B981", fontWeight: 700 }}>{fmt(funds)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Submitted Bills</span><span style={{ color: "#3B82F6", fontWeight: 700 }}>{fmt(submittedBills)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Approved Bills</span><span style={{ color: "#EF4444", fontWeight: 700 }}>{fmt(approvedBills)}</span></div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Pending Bills</span><span style={{ color: "#F59E0B", fontWeight: 700 }}>{fmt(pendingBillsEng)}</span></div>
                 <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, borderTop: "1px solid #F3F4F6" }}><span style={{ color: "#374151", fontWeight: 600 }}>Balance</span><span style={{ color: bal < 0 ? "#EF4444" : "#1E40AF", fontWeight: 700 }}>{fmt(bal)}</span></div>
               </div>
@@ -539,6 +534,8 @@ export default function App() {
   const [reviewItem, setReviewItem] = useState(null);
   const [viewAttachment, setViewAttachment] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
+  const [deleteItemType, setDeleteItemType] = useState("expense");
+  const [dashMonth, setDashMonth] = useState("all"); // for admin dashboard month filter
 
   const [filterPeriod, setFilterPeriod] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -599,9 +596,14 @@ export default function App() {
     await updateDoc(doc(db, col, id), updates);
   };
 
-  // CHANGE 3: Delete expense
+  // CHANGE: Delete expense
   const deleteExpense = async (id) => {
     await deleteDoc(doc(db, "expenses", id));
+  };
+
+  // CHANGE 2: Delete request
+  const deleteRequest = async (id) => {
+    await deleteDoc(doc(db, "requests", id));
   };
 
   // CHANGE 4: Save reserved fund
@@ -653,16 +655,35 @@ export default function App() {
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
                   <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Admin Dashboard</h2>
-                  <Button variant="warning" onClick={() => setShowReservedModal(true)}>🏦 Set Reserved Fund</Button>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <select
+                      value={dashMonth}
+                      onChange={e => setDashMonth(e.target.value)}
+                      style={{ ...inputStyle, width: "auto", padding: "8px 14px", fontWeight: 600 }}
+                    >
+                      <option value="all">All Months</option>
+                      {Array.from(new Set([
+                        ...expenses.map(e => monthOf(e.date)),
+                        ...requests.map(r => monthOf(r.date)),
+                      ])).filter(Boolean).sort((a, b) => b.localeCompare(a)).map(m => (
+                        <option key={m} value={m}>{new Date(m + "-01").toLocaleString("en-IN", { month: "long", year: "numeric" })}</option>
+                      ))}
+                    </select>
+                    <Button variant="warning" onClick={() => setShowReservedModal(true)}>🏦 Set Reserved Fund</Button>
+                  </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 24 }}>
-                  {[
-                    { label: "Pending Funds", value: requests.filter(r => r.status === "pending").length, icon: "⏳", color: "#D97706" },
-                    { label: "Pending Expenses", value: expenses.filter(r => r.status === "pending").length, icon: "📋", color: "#EF4444" },
-                    { label: "Total Disbursed", value: fmt(requests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0)), icon: "💰", color: "#065F46" },
-                  ].map(s => <Card key={s.label} style={{ padding: "18px 20px" }}><div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div><div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div><div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>{s.label}</div></Card>)}
+                  {(() => {
+                    const mReqs = dashMonth === "all" ? requests : requests.filter(r => monthOf(r.date) === dashMonth);
+                    const mExps = dashMonth === "all" ? expenses : expenses.filter(e => monthOf(e.date) === dashMonth);
+                    return [
+                      { label: "Pending Funds", value: mReqs.filter(r => r.status === "pending").length, icon: "⏳", color: "#D97706" },
+                      { label: "Pending Expenses", value: mExps.filter(e => e.status === "pending").length, icon: "📋", color: "#EF4444" },
+                      { label: "Total Disbursed", value: fmt(mReqs.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0)), icon: "💰", color: "#065F46" },
+                    ];
+                  })().map(s => <Card key={s.label} style={{ padding: "18px 20px" }}><div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div><div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div><div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>{s.label}</div></Card>)}
                 </div>
-                <AdminSummary expenses={expenses} requests={requests} reservedFund={reservedFund} />
+                <AdminSummary expenses={expenses} requests={requests} reservedFund={reservedFund} dashMonth={dashMonth} />
               </>
             ) : (
               <>
@@ -690,7 +711,7 @@ export default function App() {
 
                 <Card>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}><h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Recent Expenses</h3><Button small variant="ghost" onClick={() => setTab("expenses")}>View all →</Button></div>
-                  <ExpenseList expenses={myExpenses.slice(0, 5)} onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }} onViewAttachment={setViewAttachment} onDelete={setDeleteItem} filter={{ period: "all", status: "all", engineer: "" }} />
+                  <ExpenseList expenses={myExpenses.slice(0, 5)} onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }} onViewAttachment={setViewAttachment} onDelete={exp => { setDeleteItem(exp); setDeleteItemType("expense"); }} filter={{ period: "all", status: "all", engineer: "" }} />
                 </Card>
               </>
             )}
@@ -701,7 +722,7 @@ export default function App() {
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}><h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Fund Requests</h2>{!isAdmin && <Button onClick={() => setShowFundForm(true)}>💰 New Request</Button>}</div>
             {filterUI}
-            <Card><RequestList requests={requests} isAdmin={isAdmin} engineerId={user.id} filter={{ status: filterStatus, period: filterPeriod, engineer: filterEngineer }} onReview={req => setReviewItem(req)} /></Card>
+            <Card><RequestList requests={requests} isAdmin={isAdmin} engineerId={user.id} filter={{ status: filterStatus, period: filterPeriod, engineer: filterEngineer }} onReview={req => setReviewItem(req)} onDelete={req => { setDeleteItem(req); setDeleteItemType("request"); }} /></Card>
           </>
         )}
 
@@ -709,7 +730,7 @@ export default function App() {
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}><h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>{isAdmin ? "All Expenses" : "My Expenses"}</h2>{!isAdmin && <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>}</div>
             {filterUI}
-            <Card><ExpenseList expenses={isAdmin ? expenses : myExpenses} onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }} onViewAttachment={setViewAttachment} onReview={exp => setReviewItem(exp)} onDelete={setDeleteItem} isAdmin={isAdmin} filter={{ status: filterStatus, period: filterPeriod, engineer: filterEngineer }} /></Card>
+            <Card><ExpenseList expenses={isAdmin ? expenses : myExpenses} onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }} onViewAttachment={setViewAttachment} onReview={exp => setReviewItem(exp)} onDelete={exp => { setDeleteItem(exp); setDeleteItemType("expense"); }} isAdmin={isAdmin} filter={{ status: filterStatus, period: filterPeriod, engineer: filterEngineer }} /></Card>
           </>
         )}
       </div>
@@ -727,7 +748,7 @@ export default function App() {
         />
       )}
 
-      {deleteItem && <ConfirmDeleteModal item={deleteItem} onConfirm={deleteExpense} onClose={() => setDeleteItem(null)} />}
+      {deleteItem && <ConfirmDeleteModal item={deleteItem} itemType={deleteItemType} onConfirm={(id) => deleteItemType === "request" ? deleteRequest(id) : deleteExpense(id)} onClose={() => { setDeleteItem(null); setDeleteItemType("expense"); }} />}
 
       {showReservedModal && <ReservedFundModal currentReserved={reservedFund} onSave={saveReservedFund} onClose={() => setShowReservedModal(false)} />}
 
@@ -736,7 +757,10 @@ export default function App() {
           <div style={{ background: "#fff", borderRadius: 16, maxWidth: 700, width: "100%", maxHeight: "90vh", overflow: "auto" }}>
             <div style={{ padding: "16px 20px", borderBottom: "1px solid #E5E7EB", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div><strong style={{ fontSize: 15 }}>{viewAttachment.attachName}</strong></div>
-              <button onClick={() => setViewAttachment(null)} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer" }}>✕</button>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <Button small variant="outline" onClick={() => downloadAttachment(viewAttachment)}>⬇️ Download</Button>
+                <button onClick={() => setViewAttachment(null)} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer" }}>✕</button>
+              </div>
             </div>
             <div style={{ padding: 20, textAlign: "center" }}>
               {viewAttachment.attachment.startsWith("data:image") ? <img src={viewAttachment.attachment} alt="receipt" style={{ maxWidth: "100%", borderRadius: 8 }} /> : <iframe src={viewAttachment.attachment} style={{ width: "100%", height: 500, border: "none" }} />}
