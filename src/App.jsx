@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { collection, onSnapshot, doc, setDoc, updateDoc } from "firebase/firestore";
+import { db } from "./firebase";
 
 // ─── INITIAL DATA ──────────────────────────────────────────────────────────────
 const USERS = [
@@ -21,22 +23,6 @@ const STATUS_CONFIG = {
   rejected: { label: "Rejected", color: "#EF4444", bg: "#FEE2E2" },
 };
 
-// ─── STORAGE HELPERS ──────────────────────────────────────────────────────────
-function useStorage(key, init) {
-  const [val, setVal] = useState(() => {
-    try {
-      const stored = localStorage.getItem(key);
-      return stored ? JSON.parse(stored) : init;
-    } catch { return init; }
-  });
-  const set = (v) => {
-    const next = typeof v === "function" ? v(val) : v;
-    setVal(next);
-    try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
-  };
-  return [val, set];
-}
-
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const fmt = (n) => "₹" + Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 });
 const today = () => new Date().toISOString().split("T")[0];
@@ -54,7 +40,6 @@ function fileToBase64(file) {
 }
 
 // ─── COMPONENTS ───────────────────────────────────────────────────────────────
-
 function Avatar({ user, size = 36 }) {
   return (
     <div style={{
@@ -155,10 +140,6 @@ function Login({ onLogin }) {
           {err && <p style={{ color: "#EF4444", fontSize: 13, margin: "0 0 12px" }}>{err}</p>}
           <Button onClick={handle} style={{ width: "100%" }} disabled={!id || !pw}>Sign In →</Button>
         </Card>
-
-        <p style={{ color: "#475569", fontSize: 12, marginTop: 20 }}>
-          Demo: admin/admin123 · eng1/eng123 · eng2/eng456 · eng3/eng789
-        </p>
       </div>
     </div>
   );
@@ -272,7 +253,6 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem }) {
               border: `2px dashed ${attachment ? "#10B981" : dragOver ? "#3B82F6" : "#D1D5DB"}`,
               borderRadius: 10, padding: "16px", textAlign: "center",
               cursor: "pointer", background: attachment ? "#F0FDF4" : dragOver ? "#EFF6FF" : "#F9FAFB",
-              transition: "all 0.2s",
             }}>
             {attachment
               ? <><span style={{ fontSize: 22 }}>✅</span><br /><span style={{ fontSize: 13, color: "#065F46", fontWeight: 600 }}>{attachName}</span><br /><span style={{ fontSize: 11, color: "#6B7280" }}>Click to replace</span></>
@@ -281,7 +261,6 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem }) {
           </div>
           <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
         </Field>
-        {!attachment && <p style={{ color: "#EF4444", fontSize: 12, margin: "-8px 0 8px" }}>⚠ Bill/receipt attachment is mandatory</p>}
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
           <Button onClick={submit} disabled={!amount || !description || !attachment || over} style={{ flex: 1 }}>
@@ -323,7 +302,6 @@ function Ledger({ entries, requests }) {
 // ─── EXPENSE LIST ─────────────────────────────────────────────────────────────
 function ExpenseList({ expenses, onEdit, onViewAttachment, isAdmin, filter }) {
   const cat = (id) => CATEGORIES.find(c => c.id === id) || CATEGORIES[3];
-
   const filtered = expenses.filter(e => {
     if (!filter.period || filter.period === "all") return true;
     if (filter.period === "weekly") return weekOf(e.date) === weekOf(today());
@@ -340,9 +318,7 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, isAdmin, filter }) {
         return (
           <div key={exp.id} style={{
             display: "flex", alignItems: "center", gap: 14,
-            padding: "14px 16px", background: "#FAFAFA",
-            borderRadius: 12, border: "1px solid #F3F4F6",
-            transition: "all 0.15s",
+            padding: "14px 16px", background: "#FAFAFA", borderRadius: 12, border: "1px solid #F3F4F6",
           }}>
             <div style={{
               width: 40, height: 40, borderRadius: 10,
@@ -351,20 +327,13 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, isAdmin, filter }) {
             }}>{c.icon}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 14, color: "#111827", marginBottom: 2 }}>{exp.description}</div>
-              <div style={{ fontSize: 12, color: "#9CA3AF" }}>
-                {c.label} · {exp.date}
-                {isAdmin && <> · <span style={{ color: "#6B7280" }}>{exp.engineerName}</span></>}
-              </div>
+              <div style={{ fontSize: 12, color: "#9CA3AF" }}>{c.label} · {exp.date}{isAdmin && <> · <span style={{ color: "#6B7280" }}>{exp.engineerName}</span></>}</div>
             </div>
             <div style={{ textAlign: "right", flexShrink: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: "#EF4444" }}>-{fmt(exp.amount)}</div>
               <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 4 }}>
-                {exp.attachment && (
-                  <Button small variant="ghost" onClick={() => onViewAttachment(exp)}>📎 Bill</Button>
-                )}
-                {!isAdmin && (
-                  <Button small variant="outline" onClick={() => onEdit(exp)}>Edit</Button>
-                )}
+                {exp.attachment && <Button small variant="ghost" onClick={() => onViewAttachment(exp)}>📎 Bill</Button>}
+                {!isAdmin && <Button small variant="outline" onClick={() => onEdit(exp)}>Edit</Button>}
               </div>
             </div>
           </div>
@@ -385,14 +354,10 @@ function RequestList({ requests, onApprove, onReject, isAdmin, engineerId }) {
         const c = CATEGORIES.find(c => c.id === req.category) || CATEGORIES[3];
         return (
           <div key={req.id} style={{
-            padding: "14px 16px", background: "#FAFAFA",
-            borderRadius: 12, border: "1px solid #F3F4F6",
-            display: "flex", alignItems: "center", gap: 14,
+            padding: "14px 16px", background: "#FAFAFA", borderRadius: 12, border: "1px solid #F3F4F6", display: "flex", alignItems: "center", gap: 14,
           }}>
             <div style={{
-              width: 40, height: 40, borderRadius: 10,
-              background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 18, flexShrink: 0,
+              width: 40, height: 40, borderRadius: 10, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0,
             }}>{c.icon}</div>
             <div style={{ flex: 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -415,7 +380,7 @@ function RequestList({ requests, onApprove, onReject, isAdmin, engineerId }) {
   );
 }
 
-// ─── ATTACHMENT VIEWER ────────────────────────────────────────────────────────
+// ─── ATTACHMENT VIEWER & ADMIN SUMMARY ────────────────────────────────────────
 function AttachmentViewer({ exp, onClose }) {
   const isImg = exp.attachment?.startsWith("data:image");
   const isPdf = exp.attachment?.startsWith("data:application/pdf");
@@ -423,10 +388,7 @@ function AttachmentViewer({ exp, onClose }) {
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: 20 }}>
       <div style={{ background: "#fff", borderRadius: 16, maxWidth: 700, width: "100%", maxHeight: "90vh", overflow: "auto" }}>
         <div style={{ padding: "16px 20px", borderBottom: "1px solid #E5E7EB", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <strong style={{ fontSize: 15 }}>{exp.attachName}</strong>
-            <div style={{ fontSize: 12, color: "#9CA3AF" }}>{exp.description} · {fmt(exp.amount)}</div>
-          </div>
+          <div><strong style={{ fontSize: 15 }}>{exp.attachName}</strong><div style={{ fontSize: 12, color: "#9CA3AF" }}>{exp.description} · {fmt(exp.amount)}</div></div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer" }}>✕</button>
         </div>
         <div style={{ padding: 20, textAlign: "center" }}>
@@ -439,39 +401,24 @@ function AttachmentViewer({ exp, onClose }) {
   );
 }
 
-// ─── ADMIN SUMMARY ────────────────────────────────────────────────────────────
 function AdminSummary({ expenses, requests }) {
   const engineers = USERS.filter(u => u.role === "engineer");
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14, marginBottom: 24 }}>
       {engineers.map(eng => {
-        const engExpenses = expenses.filter(e => e.engineerId === eng.id);
-        const engRequests = requests.filter(r => r.engineerId === eng.id && r.status === "approved");
-        const spent = engExpenses.reduce((s, e) => s + e.amount, 0);
-        const funds = engRequests.reduce((s, r) => s + r.amount, 0);
+        const spent = expenses.filter(e => e.engineerId === eng.id).reduce((s, e) => s + e.amount, 0);
+        const funds = requests.filter(r => r.engineerId === eng.id && r.status === "approved").reduce((s, r) => s + r.amount, 0);
         const bal = funds - spent;
         return (
           <Card key={eng.id} style={{ padding: 16 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
               <Avatar user={eng} size={36} />
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{eng.name}</div>
-                <div style={{ fontSize: 11, color: "#9CA3AF" }}>{eng.department}</div>
-              </div>
+              <div><div style={{ fontWeight: 700, fontSize: 14 }}>{eng.name}</div><div style={{ fontSize: 11, color: "#9CA3AF" }}>{eng.department}</div></div>
             </div>
             <div style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#6B7280" }}>Funds</span>
-                <span style={{ color: "#10B981", fontWeight: 700 }}>{fmt(funds)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#6B7280" }}>Spent</span>
-                <span style={{ color: "#EF4444", fontWeight: 700 }}>{fmt(spent)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, borderTop: "1px solid #F3F4F6" }}>
-                <span style={{ color: "#374151", fontWeight: 600 }}>Balance</span>
-                <span style={{ color: bal < 0 ? "#EF4444" : "#1E40AF", fontWeight: 700 }}>{fmt(bal)}</span>
-              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Funds</span><span style={{ color: "#10B981", fontWeight: 700 }}>{fmt(funds)}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Spent</span><span style={{ color: "#EF4444", fontWeight: 700 }}>{fmt(spent)}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, borderTop: "1px solid #F3F4F6" }}><span style={{ color: "#374151", fontWeight: 600 }}>Balance</span><span style={{ color: bal < 0 ? "#EF4444" : "#1E40AF", fontWeight: 700 }}>{fmt(bal)}</span></div>
             </div>
           </Card>
         );
@@ -480,11 +427,8 @@ function AdminSummary({ expenses, requests }) {
   );
 }
 
-// ─── FIELD & INPUT STYLE ──────────────────────────────────────────────────────
 const inputStyle = {
-  width: "100%", padding: "10px 12px", borderRadius: 10,
-  border: "1.5px solid #E5E7EB", fontSize: 14, fontFamily: "'DM Sans', sans-serif",
-  background: "#F9FAFB", boxSizing: "border-box",
+  width: "100%", padding: "10px 12px", borderRadius: 10, border: "1.5px solid #E5E7EB", fontSize: 14, fontFamily: "'DM Sans', sans-serif", background: "#F9FAFB", boxSizing: "border-box",
 };
 
 function Field({ label, children }) {
@@ -496,11 +440,14 @@ function Field({ label, children }) {
   );
 }
 
-// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+// ─── MAIN APP (FIREBASE INTEGRATED) ───────────────────────────────────────────
 export default function App() {
   const [user, setUser] = useState(null);
-  const [expenses, setExpenses] = useStorage("fse_expenses", []);
-  const [requests, setRequests] = useStorage("fse_requests", []);
+  
+  // Local state for Firebase data
+  const [expenses, setExpenses] = useState([]);
+  const [requests, setRequests] = useState([]);
+  
   const [tab, setTab] = useState("dashboard");
   const [showFundForm, setShowFundForm] = useState(false);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
@@ -508,6 +455,22 @@ export default function App() {
   const [viewAttachment, setViewAttachment] = useState(null);
   const [filterPeriod, setFilterPeriod] = useState("all");
   const [filterEngineer, setFilterEngineer] = useState("");
+
+  // Listen to Firestore Realtime Updates
+  useEffect(() => {
+    const unsubscribeExpenses = onSnapshot(collection(db, "expenses"), (snapshot) => {
+      setExpenses(snapshot.docs.map(doc => doc.data()));
+    });
+    
+    const unsubscribeRequests = onSnapshot(collection(db, "requests"), (snapshot) => {
+      setRequests(snapshot.docs.map(doc => doc.data()));
+    });
+
+    return () => {
+      unsubscribeExpenses();
+      unsubscribeRequests();
+    };
+  }, []);
 
   if (!user) return <Login onLogin={setUser} />;
 
@@ -518,82 +481,47 @@ export default function App() {
   const totalSpent = myExpenses.reduce((s, e) => s + e.amount, 0);
   const availableBalance = approvedFunds - totalSpent;
 
-  const addRequest = (req) => setRequests(prev => [req, ...prev]);
-  const addExpense = (exp) => {
-    setExpenses(prev => {
-      const idx = prev.findIndex(e => e.id === exp.id);
-      if (idx >= 0) { const next = [...prev]; next[idx] = exp; return next; }
-      return [exp, ...prev];
-    });
-  };
-  const approveRequest = (id) => setRequests(prev => prev.map(r => r.id === id ? { ...r, status: "approved" } : r));
-  const rejectRequest = (id) => setRequests(prev => prev.map(r => r.id === id ? { ...r, status: "rejected" } : r));
+  // Firebase CRUD Functions
+  const addRequest = async (req) => await setDoc(doc(db, "requests", req.id), req);
+  const addExpense = async (exp) => await setDoc(doc(db, "expenses", exp.id), exp);
+  const approveRequest = async (id) => await updateDoc(doc(db, "requests", id), { status: "approved" });
+  const rejectRequest = async (id) => await updateDoc(doc(db, "requests", id), { status: "rejected" });
 
   const pendingCount = requests.filter(r => r.status === "pending").length;
 
   const tabs = isAdmin
-    ? [
-        { id: "dashboard", label: "Dashboard", icon: "📊" },
-        { id: "requests", label: `Requests${pendingCount ? ` (${pendingCount})` : ""}`, icon: "📋" },
-        { id: "expenses", label: "All Expenses", icon: "🧾" },
-      ]
-    : [
-        { id: "dashboard", label: "Dashboard", icon: "📊" },
-        { id: "requests", label: "Fund Requests", icon: "💰" },
-        { id: "expenses", label: "My Expenses", icon: "🧾" },
-      ];
+    ? [{ id: "dashboard", label: "Dashboard", icon: "📊" }, { id: "requests", label: `Requests${pendingCount ? ` (${pendingCount})` : ""}`, icon: "📋" }, { id: "expenses", label: "All Expenses", icon: "🧾" }]
+    : [{ id: "dashboard", label: "Dashboard", icon: "📊" }, { id: "requests", label: "Fund Requests", icon: "💰" }, { id: "expenses", label: "My Expenses", icon: "🧾" }];
 
   return (
     <div style={{ minHeight: "100vh", background: "#F8FAFC", fontFamily: "'DM Sans', sans-serif" }}>
       {/* NAV */}
-      <div style={{
-        background: "#0F172A",
-        padding: "0 24px", position: "sticky", top: 0, zIndex: 100,
-        boxShadow: "0 1px 0 rgba(255,255,255,0.05)",
-      }}>
+      <div style={{ background: "#0F172A", padding: "0 24px", position: "sticky", top: 0, zIndex: 100, boxShadow: "0 1px 0 rgba(255,255,255,0.05)" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", gap: 24, height: 58 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginRight: 8 }}>
-            <div style={{ fontSize: 22 }}>⚡</div>
-            <span style={{ color: "#fff", fontWeight: 800, fontSize: 16 }}>FieldExpense</span>
-          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginRight: 8 }}><div style={{ fontSize: 22 }}>⚡</div><span style={{ color: "#fff", fontWeight: 800, fontSize: 16 }}>FieldExpense</span></div>
           <div style={{ display: "flex", gap: 4, flex: 1 }}>
             {tabs.map(t => (
               <button key={t.id} onClick={() => setTab(t.id)} style={{
-                background: tab === t.id ? "rgba(59,130,246,0.2)" : "none",
-                border: "none", borderRadius: 8, padding: "6px 14px",
-                color: tab === t.id ? "#60A5FA" : "#94A3B8", cursor: "pointer",
-                fontSize: 13, fontWeight: tab === t.id ? 700 : 500,
-                fontFamily: "'DM Sans', sans-serif",
+                background: tab === t.id ? "rgba(59,130,246,0.2)" : "none", border: "none", borderRadius: 8, padding: "6px 14px",
+                color: tab === t.id ? "#60A5FA" : "#94A3B8", cursor: "pointer", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, fontFamily: "'DM Sans', sans-serif",
               }}>{t.icon} {t.label}</button>
             ))}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Avatar user={user} size={32} />
-            <div>
-              <div style={{ color: "#fff", fontSize: 13, fontWeight: 600, lineHeight: 1 }}>{user.name}</div>
-              <div style={{ color: "#64748B", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>{user.role}</div>
-            </div>
-            <button onClick={() => setUser(null)} style={{
-              background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 8,
-              color: "#94A3B8", padding: "6px 12px", cursor: "pointer", fontSize: 12,
-              fontFamily: "'DM Sans', sans-serif", marginLeft: 8,
-            }}>Sign out</button>
+            <div><div style={{ color: "#fff", fontSize: 13, fontWeight: 600, lineHeight: 1 }}>{user.name}</div><div style={{ color: "#64748B", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>{user.role}</div></div>
+            <button onClick={() => setUser(null)} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 8, color: "#94A3B8", padding: "6px 12px", cursor: "pointer", fontSize: 12, fontFamily: "'DM Sans', sans-serif", marginLeft: 8 }}>Sign out</button>
           </div>
         </div>
       </div>
 
       {/* CONTENT */}
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 24px" }}>
-        {/* DASHBOARD */}
         {tab === "dashboard" && (
           <>
             {isAdmin ? (
               <>
-                <div style={{ marginBottom: 24 }}>
-                  <h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800 }}>Admin Dashboard</h2>
-                  <p style={{ margin: 0, color: "#6B7280", fontSize: 14 }}>Overview of all field engineers</p>
-                </div>
-                {/* Global stats */}
+                <div style={{ marginBottom: 24 }}><h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800 }}>Admin Dashboard</h2><p style={{ margin: 0, color: "#6B7280", fontSize: 14 }}>Overview of all field engineers</p></div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 24 }}>
                   {[
                     { label: "Total Engineers", value: USERS.filter(u => u.role === "engineer").length, icon: "👷", color: "#1E40AF" },
@@ -601,133 +529,56 @@ export default function App() {
                     { label: "Total Disbursed", value: fmt(requests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0)), icon: "💰", color: "#065F46" },
                     { label: "Total Expenses", value: fmt(expenses.reduce((s, e) => s + e.amount, 0)), icon: "🧾", color: "#7C3AED" },
                   ].map(s => (
-                    <Card key={s.label} style={{ padding: "18px 20px" }}>
-                      <div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div>
-                      <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>{s.label}</div>
-                    </Card>
+                    <Card key={s.label} style={{ padding: "18px 20px" }}><div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div><div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div><div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>{s.label}</div></Card>
                   ))}
                 </div>
                 <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 14px" }}>Engineer Balances</h3>
                 <AdminSummary expenses={expenses} requests={requests} />
-                {/* Category breakdown */}
-                <Card>
-                  <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700 }}>Expenses by Category</h3>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))", gap: 12 }}>
-                    {CATEGORIES.map(c => {
-                      const total = expenses.filter(e => e.category === c.id).reduce((s, e) => s + e.amount, 0);
-                      return (
-                        <div key={c.id} style={{ background: c.color + "10", borderRadius: 12, padding: "14px 16px", borderLeft: `4px solid ${c.color}` }}>
-                          <div style={{ fontSize: 22 }}>{c.icon}</div>
-                          <div style={{ fontWeight: 700, fontSize: 16, color: c.color, marginTop: 4 }}>{fmt(total)}</div>
-                          <div style={{ fontSize: 12, color: "#6B7280" }}>{c.label}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Card>
               </>
             ) : (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
-                  <div>
-                    <h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800 }}>Welcome, {user.name} 👋</h2>
-                    <p style={{ margin: 0, color: "#6B7280", fontSize: 14 }}>{user.department}</p>
-                  </div>
+                  <div><h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800 }}>Welcome, {user.name} 👋</h2><p style={{ margin: 0, color: "#6B7280", fontSize: 14 }}>{user.department}</p></div>
                   <div style={{ display: "flex", gap: 10 }}>
                     <Button onClick={() => setShowFundForm(true)} variant="outline">💰 Request Funds</Button>
                     <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>
                   </div>
                 </div>
                 <Ledger entries={myExpenses} requests={myRequests} />
-                {/* Recent expenses */}
                 <Card>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Recent Expenses</h3>
-                    <Button small variant="ghost" onClick={() => setTab("expenses")}>View all →</Button>
-                  </div>
-                  <ExpenseList
-                    expenses={myExpenses.slice(0, 5)}
-                    onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }}
-                    onViewAttachment={setViewAttachment}
-                    filter={{ period: "all" }}
-                  />
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}><h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Recent Expenses</h3><Button small variant="ghost" onClick={() => setTab("expenses")}>View all →</Button></div>
+                  <ExpenseList expenses={myExpenses.slice(0, 5)} onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }} onViewAttachment={setViewAttachment} filter={{ period: "all" }} />
                 </Card>
               </>
             )}
           </>
         )}
 
-        {/* REQUESTS TAB */}
         {tab === "requests" && (
           <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Fund Requests</h2>
-              {!isAdmin && <Button onClick={() => setShowFundForm(true)}>💰 New Request</Button>}
-            </div>
-            <Card>
-              <RequestList
-                requests={requests}
-                onApprove={approveRequest}
-                onReject={rejectRequest}
-                isAdmin={isAdmin}
-                engineerId={user.id}
-              />
-            </Card>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Fund Requests</h2>{!isAdmin && <Button onClick={() => setShowFundForm(true)}>💰 New Request</Button>}</div>
+            <Card><RequestList requests={requests} onApprove={approveRequest} onReject={rejectRequest} isAdmin={isAdmin} engineerId={user.id} /></Card>
           </>
         )}
 
-        {/* EXPENSES TAB */}
         {tab === "expenses" && (
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
               <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>{isAdmin ? "All Expenses" : "My Expenses"}</h2>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                {isAdmin && (
-                  <select value={filterEngineer} onChange={e => setFilterEngineer(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}>
-                    <option value="">All Engineers</option>
-                    {USERS.filter(u => u.role === "engineer").map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </select>
-                )}
-                <select value={filterPeriod} onChange={e => setFilterPeriod(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}>
-                  <option value="all">All Time</option>
-                  <option value="weekly">This Week</option>
-                  <option value="monthly">This Month</option>
-                </select>
-                {!isAdmin && (
-                  <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>
-                    🧾 Add Expense
-                  </Button>
-                )}
+                {isAdmin && <select value={filterEngineer} onChange={e => setFilterEngineer(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}><option value="">All Engineers</option>{USERS.filter(u => u.role === "engineer").map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select>}
+                <select value={filterPeriod} onChange={e => setFilterPeriod(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}><option value="all">All Time</option><option value="weekly">This Week</option><option value="monthly">This Month</option></select>
+                {!isAdmin && <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>}
               </div>
             </div>
-
             {!isAdmin && <Ledger entries={myExpenses} requests={myRequests} />}
-
-            <Card>
-              <ExpenseList
-                expenses={isAdmin ? expenses : myExpenses}
-                onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }}
-                onViewAttachment={setViewAttachment}
-                isAdmin={isAdmin}
-                filter={{ period: filterPeriod, engineer: filterEngineer }}
-              />
-            </Card>
+            <Card><ExpenseList expenses={isAdmin ? expenses : myExpenses} onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }} onViewAttachment={setViewAttachment} isAdmin={isAdmin} filter={{ period: filterPeriod, engineer: filterEngineer }} /></Card>
           </>
         )}
       </div>
 
-      {/* MODALS */}
       {showFundForm && <FundRequestForm user={user} onSubmit={addRequest} onClose={() => setShowFundForm(false)} />}
-      {showExpenseForm && (
-        <ExpenseForm
-          user={user}
-          availableBalance={editExpense ? availableBalance + editExpense.amount : availableBalance}
-          onSubmit={addExpense}
-          onClose={() => { setShowExpenseForm(false); setEditExpense(null); }}
-          editItem={editExpense}
-        />
-      )}
+      {showExpenseForm && <ExpenseForm user={user} availableBalance={editExpense ? availableBalance + editExpense.amount : availableBalance} onSubmit={addExpense} onClose={() => { setShowExpenseForm(false); setEditExpense(null); }} editItem={editExpense} />}
       {viewAttachment && <AttachmentViewer exp={viewAttachment} onClose={() => setViewAttachment(null)} />}
     </div>
   );
