@@ -27,8 +27,16 @@ const STATUS_CONFIG = {
 const fmt = (n) => "₹" + Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 });
 const today = () => new Date().toISOString().split("T")[0];
 const uid = () => Math.random().toString(36).slice(2, 10);
-const weekOf = (d) => { const dt = new Date(d); dt.setDate(dt.getDate() - dt.getDay()); return dt.toISOString().split("T")[0]; };
 const monthOf = (d) => d?.slice(0, 7);
+
+// Check if a date falls within a filter range: { mode: "all"|"month"|"custom", month: "YYYY-MM", from: "YYYY-MM-DD", to: "YYYY-MM-DD" }
+function inRange(date, f) {
+  if (!date) return false;
+  if (f.mode === "all") return true;
+  if (f.mode === "month") return monthOf(date) === f.month;
+  if (f.mode === "custom") return date >= f.from && date <= f.to;
+  return true;
+}
 
 function fileToBase64(file) {
   return new Promise((res, rej) => {
@@ -66,7 +74,6 @@ function downloadAttachment(exp) {
   if (!exp.attachment) return;
   const a = document.createElement("a");
   a.href = exp.attachment;
-  // Determine extension from data URL or file name
   const ext = exp.attachName ? exp.attachName.split(".").pop() : (exp.attachment.startsWith("data:image/png") ? "png" : exp.attachment.startsWith("data:application/pdf") ? "pdf" : "jpg");
   a.download = `bill-${exp.engineerName.replace(/\s+/g, "_")}-${exp.date}-${exp.id}.${ext}`;
   a.click();
@@ -110,6 +117,7 @@ function Button({ children, onClick, variant = "primary", disabled, style, small
     ghost: { background: "#F3F4F6", color: "#374151" },
     outline: { background: "#fff", color: "#1E40AF", border: "1.5px solid #1E40AF" },
     warning: { background: "linear-gradient(135deg,#92400E,#F59E0B)", color: "#fff" },
+    teal: { background: "linear-gradient(135deg,#0F766E,#14B8A6)", color: "#fff" },
   };
   return <button style={{ ...base, ...variants[variant] }} onClick={onClick} disabled={disabled}>{children}</button>;
 }
@@ -120,18 +128,58 @@ function Field({ label, children }) {
   return <div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#6B7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</label>{children}</div>;
 }
 
+// ─── DATE RANGE FILTER UI ─────────────────────────────────────────────────────
+// allMonths: sorted array of "YYYY-MM" strings from all data
+function DateRangeFilter({ filter, onChange, allMonths }) {
+  return (
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+      <select
+        value={filter.mode}
+        onChange={e => onChange({ mode: e.target.value, month: filter.month, from: filter.from, to: filter.to })}
+        style={{ ...inputStyle, width: "auto", padding: "8px 14px", fontWeight: 600 }}
+      >
+        <option value="all">All Time</option>
+        <option value="month">By Month</option>
+        <option value="custom">Custom Range</option>
+      </select>
+
+      {filter.mode === "month" && (
+        <select
+          value={filter.month}
+          onChange={e => onChange({ ...filter, month: e.target.value })}
+          style={{ ...inputStyle, width: "auto", padding: "8px 14px" }}
+        >
+          {allMonths.map(m => (
+            <option key={m} value={m}>{new Date(m + "-01").toLocaleString("en-IN", { month: "long", year: "numeric" })}</option>
+          ))}
+          {!allMonths.includes(filter.month) && filter.month && (
+            <option value={filter.month}>{new Date(filter.month + "-01").toLocaleString("en-IN", { month: "long", year: "numeric" })}</option>
+          )}
+        </select>
+      )}
+
+      {filter.mode === "custom" && (
+        <>
+          <input type="date" value={filter.from} onChange={e => onChange({ ...filter, from: e.target.value })}
+            style={{ ...inputStyle, width: "auto", padding: "8px 12px" }} />
+          <span style={{ color: "#6B7280", fontSize: 13 }}>to</span>
+          <input type="date" value={filter.to} onChange={e => onChange({ ...filter, to: e.target.value })}
+            style={{ ...inputStyle, width: "auto", padding: "8px 12px" }} />
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
 function Login({ onLogin }) {
   const [id, setId] = useState("");
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
-
   const handle = () => {
     const u = USERS.find(u => u.id === id && u.password === pw);
-    if (u) onLogin(u);
-    else setErr("Invalid credentials. Try again.");
+    if (u) onLogin(u); else setErr("Invalid credentials. Try again.");
   };
-
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0F172A 0%, #1E1B4B 50%, #0F172A 100%)", fontFamily: "'DM Sans', sans-serif" }}>
       <div style={{ textAlign: "center", width: "100%", maxWidth: 420, padding: "0 24px" }}>
@@ -149,20 +197,58 @@ function Login({ onLogin }) {
   );
 }
 
-// ─── RESERVED FUND MODAL ──────────────────────────────────────────────────────
-function ReservedFundModal({ currentReserved, onSave, onClose }) {
-  const [amount, setAmount] = useState(currentReserved || "");
+// ─── RECEIVED FUND FORM MODAL ─────────────────────────────────────────────────
+function ReceivedFundModal({ onSave, onClose, editItem }) {
+  const [amount, setAmount] = useState(editItem?.amount || "");
+  const [date, setDate] = useState(editItem?.date || today());
+  const [purpose, setPurpose] = useState(editItem?.purpose || "");
+  const [pfrNo, setPfrNo] = useState(editItem?.pfrNo || "");
+  const [source, setSource] = useState(editItem?.source || "");
+  const [remarks, setRemarks] = useState(editItem?.remarks || "");
+
+  const submit = () => {
+    if (!amount || !date || !purpose) return;
+    onSave({
+      id: editItem?.id || uid(),
+      amount: parseFloat(amount),
+      date, purpose, pfrNo, source, remarks,
+      createdAt: editItem?.createdAt || today(),
+    });
+    onClose();
+  };
+
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
-      <Card style={{ width: "100%", maxWidth: 380 }}>
-        <h3 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 700 }}>🏦 Reserved Fund</h3>
-        <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 16px" }}>Set the total fund pool available for engineer disbursements. Approved requests will be deducted from this amount.</p>
-        <Field label="Total Reserved Amount (₹)">
-          <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="Enter total fund pool" style={inputStyle} />
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16, overflowY: "auto" }}>
+      <Card style={{ width: "100%", maxWidth: 480, margin: "auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>💵 {editItem ? "Edit" : "Add"} Received Fund</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Amount Received (₹)">
+            <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" style={inputStyle} />
+          </Field>
+          <Field label="Received Date">
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
+          </Field>
+        </div>
+        <Field label="Purpose">
+          <input value={purpose} onChange={e => setPurpose(e.target.value)} placeholder="Purpose of this fund" style={inputStyle} />
+        </Field>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="PFR No.">
+            <input value={pfrNo} onChange={e => setPfrNo(e.target.value)} placeholder="PFR number" style={inputStyle} />
+          </Field>
+          <Field label="Source / From">
+            <input value={source} onChange={e => setSource(e.target.value)} placeholder="Fund source" style={inputStyle} />
+          </Field>
+        </div>
+        <Field label="Remarks (optional)">
+          <textarea value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="Any additional notes..." rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </Field>
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
-          <Button onClick={() => { onSave(parseFloat(amount) || 0); onClose(); }} style={{ flex: 1 }}>Save</Button>
+          <Button onClick={submit} disabled={!amount || !date || !purpose} style={{ flex: 1 }}>{editItem ? "Update" : "Add Fund"}</Button>
         </div>
       </Card>
     </div>
@@ -174,7 +260,6 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject }) {
   const [amount, setAmount] = useState(item.amount);
   const [comment, setComment] = useState("");
   const amountChanged = parseFloat(amount) !== item.amount;
-
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
       <Card style={{ width: "100%", maxWidth: 420 }}>
@@ -192,45 +277,31 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject }) {
           <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 13 }}>
             <span style={{ color: "#92400E", fontWeight: 600 }}>⚠️ Amount edited:</span>{" "}
             <span style={{ color: "#78350F" }}>{fmt(item.amount)} → {fmt(parseFloat(amount) || 0)}</span>
-            <div style={{ marginTop: 4, fontSize: 12, color: "#6B7280" }}>A note will be marked on this item.</div>
           </div>
         )}
         <Field label={`Admin Comment ${amountChanged ? "(required)" : "(optional)"}`}>
-          <textarea
-            value={comment}
-            onChange={e => setComment(e.target.value)}
-            placeholder="Add a note or reason for approval/edit..."
-            rows={3}
-            style={{ ...inputStyle, resize: "vertical" }}
-          />
+          <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder="Add a note or reason..." rows={3} style={{ ...inputStyle, resize: "vertical" }} />
         </Field>
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
           <Button onClick={() => { onReject(item.id, comment); onClose(); }} variant="danger" style={{ flex: 1 }}>Reject</Button>
-          <Button
-            onClick={() => { onApprove(item.id, parseFloat(amount), comment, item.amount); onClose(); }}
-            variant="success"
-            disabled={amountChanged && !comment.trim()}
-            style={{ flex: 1 }}
-          >Approve</Button>
+          <Button onClick={() => { onApprove(item.id, parseFloat(amount), comment, item.amount); onClose(); }} variant="success" disabled={amountChanged && !comment.trim()} style={{ flex: 1 }}>Approve</Button>
         </div>
       </Card>
     </div>
   );
 }
 
-// ─── FORMS ────────────────────────────────────────────────────────────────────
+// ─── FUND REQUEST FORM ────────────────────────────────────────────────────────
 function FundRequestForm({ user, onSubmit, onClose }) {
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [category, setCategory] = useState("travel");
-
   const submit = () => {
     if (!amount || !reason) return;
     onSubmit({ id: uid(), engineerId: user.id, engineerName: user.name, amount: parseFloat(amount), reason, category, status: "pending", date: today(), type: "fund_request" });
     onClose();
   };
-
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
       <Card style={{ width: "100%", maxWidth: 460 }}>
@@ -244,6 +315,7 @@ function FundRequestForm({ user, onSubmit, onClose }) {
   );
 }
 
+// ─── EXPENSE FORM ─────────────────────────────────────────────────────────────
 function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem }) {
   const [amount, setAmount] = useState(editItem?.amount || "");
   const [category, setCategory] = useState(editItem?.category || "travel");
@@ -270,8 +342,7 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem }) {
     onSubmit({
       id: editItem?.id || uid(), engineerId: user.id, engineerName: user.name,
       amount: parseFloat(amount), category, description, date, attachment, attachName,
-      type: "expense", status: "pending",
-      editLog: editItem?.editLog || [],
+      type: "expense", status: "pending", editLog: editItem?.editLog || [],
     });
     onClose();
   };
@@ -295,14 +366,12 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem }) {
 
 // ─── CONFIRM DELETE MODAL ─────────────────────────────────────────────────────
 function ConfirmDeleteModal({ item, itemType, onConfirm, onClose }) {
-  const label = itemType === "request" ? `fund request of ${fmt(item.amount)}` : `expense "${item.description}" (${fmt(item.amount)})`;
+  const label = itemType === "request" ? `fund request of ${fmt(item.amount)}` : itemType === "received" ? `received fund of ${fmt(item.amount)}` : `expense "${item.description}" (${fmt(item.amount)})`;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
       <Card style={{ width: "100%", maxWidth: 360 }}>
-        <h3 style={{ margin: "0 0 12px", fontSize: 18, fontWeight: 700 }}>🗑️ Delete {itemType === "request" ? "Request" : "Expense"}</h3>
-        <p style={{ fontSize: 14, color: "#4B5563", margin: "0 0 20px" }}>
-          Are you sure you want to delete the {label} by <strong>{item.engineerName}</strong>? This cannot be undone.
-        </p>
+        <h3 style={{ margin: "0 0 12px", fontSize: 18, fontWeight: 700 }}>🗑️ Delete</h3>
+        <p style={{ fontSize: 14, color: "#4B5563", margin: "0 0 20px" }}>Are you sure you want to delete the {label} by <strong>{item.engineerName || "Admin"}</strong>? This cannot be undone.</p>
         <div style={{ display: "flex", gap: 10 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
           <Button onClick={() => { onConfirm(item.id); onClose(); }} variant="danger" style={{ flex: 1 }}>Delete</Button>
@@ -312,26 +381,23 @@ function ConfirmDeleteModal({ item, itemType, onConfirm, onClose }) {
   );
 }
 
-// ─── LIST COMPONENTS ──────────────────────────────────────────────────────────
+// ─── EXPENSE LIST ─────────────────────────────────────────────────────────────
 function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, isAdmin, filter }) {
   const cat = (id) => CATEGORIES.find(c => c.id === id) || CATEGORIES[3];
+  const filtered = expenses
+    .filter(e => {
+      if (!inRange(e.date, filter.dateRange || { mode: "all" })) return false;
+      if (filter.status !== "all" && e.status !== filter.status) return false;
+      if (isAdmin && filter.engineer && e.engineerId !== filter.engineer) return false;
+      return true;
+    })
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
 
-  const filtered = expenses.filter(e => {
-    if (filter.status !== "all" && e.status !== filter.status) return false;
-    if (filter.period === "weekly" && weekOf(e.date) !== weekOf(today())) return false;
-    if (filter.period === "monthly" && monthOf(e.date) !== monthOf(today())) return false;
-    if (isAdmin && filter.engineer && e.engineerId !== filter.engineer) return false;
-    return true;
-  });
-
-  // CHANGE 1: Sort by latest first
-  const sorted = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date));
-
-  if (!sorted.length) return <div style={{ textAlign: "center", padding: "40px 0", color: "#9CA3AF", fontSize: 14 }}>No expenses found.</div>;
+  if (!filtered.length) return <div style={{ textAlign: "center", padding: "40px 0", color: "#9CA3AF", fontSize: 14 }}>No expenses found.</div>;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {sorted.map(exp => {
+      {filtered.map(exp => {
         const c = cat(exp.category);
         const hasEditLog = exp.editLog && exp.editLog.length > 0;
         return (
@@ -350,16 +416,13 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
                 <div style={{ fontWeight: 700, fontSize: 15, color: "#EF4444" }}>-{fmt(exp.amount)}</div>
                 <div style={{ display: "flex", gap: 4, justifyContent: "flex-end", marginTop: 4, flexWrap: "wrap" }}>
                   {exp.attachment && <Button small variant="ghost" onClick={() => onViewAttachment(exp)}>📎 Bill</Button>}
+                  {isAdmin && exp.attachment && <Button small variant="ghost" onClick={() => downloadAttachment(exp)}>⬇️</Button>}
                   {!isAdmin && exp.status === "pending" && <Button small variant="outline" onClick={() => onEdit(exp)}>Edit</Button>}
                   {isAdmin && exp.status === "pending" && <Button small variant="primary" onClick={() => onReview(exp)}>Review</Button>}
-                  {/* Download attachment for admin */}
-                  {isAdmin && exp.attachment && <Button small variant="ghost" onClick={() => downloadAttachment(exp)}>⬇️ Bill</Button>}
-                  {/* CHANGE 3: Delete option for admin */}
                   {isAdmin && <Button small variant="danger" onClick={() => onDelete(exp)}>🗑️</Button>}
                 </div>
               </div>
             </div>
-            {/* CHANGE 5: Show edit log inline */}
             {hasEditLog && (
               <div style={{ marginTop: 10, borderTop: "1px solid #F3F4F6", paddingTop: 10 }}>
                 {exp.editLog.map((entry, i) => (
@@ -378,16 +441,17 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
   );
 }
 
+// ─── REQUEST LIST ─────────────────────────────────────────────────────────────
 function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete }) {
-  // CHANGE 1: Sort by latest first
-  const filtered = requests.filter(r => {
-    if (!isAdmin && r.engineerId !== engineerId) return false;
-    if (filter.status !== "all" && r.status !== filter.status) return false;
-    if (filter.period === "weekly" && weekOf(r.date) !== weekOf(today())) return false;
-    if (filter.period === "monthly" && monthOf(r.date) !== monthOf(today())) return false;
-    if (isAdmin && filter.engineer && r.engineerId !== filter.engineer) return false;
-    return true;
-  }).sort((a, b) => new Date(b.date) - new Date(a.date));
+  const filtered = requests
+    .filter(r => {
+      if (!isAdmin && r.engineerId !== engineerId) return false;
+      if (!inRange(r.date, filter.dateRange || { mode: "all" })) return false;
+      if (filter.status !== "all" && r.status !== filter.status) return false;
+      if (isAdmin && filter.engineer && r.engineerId !== filter.engineer) return false;
+      return true;
+    })
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
 
   if (!filtered.length) return <div style={{ textAlign: "center", padding: "40px 0", color: "#9CA3AF", fontSize: 14 }}>No requests found.</div>;
 
@@ -409,17 +473,11 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
                 <div style={{ fontSize: 13, color: "#6B7280" }}>{req.reason}</div>
                 {isAdmin && <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>By: {req.engineerName} · {req.date}</div>}
               </div>
-              {isAdmin && req.status === "pending" && (
-                <div style={{ flexShrink: 0, display: "flex", gap: 6 }}>
-                  <Button small variant="primary" onClick={() => onReview(req)}>Review</Button>
-                  <Button small variant="danger" onClick={() => onDelete(req)}>🗑️</Button>
-                </div>
-              )}
-              {isAdmin && req.status !== "pending" && (
-                <div style={{ flexShrink: 0 }}><Button small variant="danger" onClick={() => onDelete(req)}>🗑️</Button></div>
-              )}
+              <div style={{ flexShrink: 0, display: "flex", gap: 6 }}>
+                {isAdmin && req.status === "pending" && <Button small variant="primary" onClick={() => onReview(req)}>Review</Button>}
+                {isAdmin && <Button small variant="danger" onClick={() => onDelete(req)}>🗑️</Button>}
+              </div>
             </div>
-            {/* CHANGE 5: Show edit log for requests too */}
             {hasEditLog && (
               <div style={{ marginTop: 10, borderTop: "1px solid #F3F4F6", paddingTop: 10 }}>
                 {req.editLog.map((entry, i) => (
@@ -438,50 +496,95 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
   );
 }
 
+// ─── RECEIVED FUNDS LIST ──────────────────────────────────────────────────────
+function ReceivedFundList({ funds, onEdit, onDelete, filter }) {
+  const filtered = funds
+    .filter(f => inRange(f.date, filter.dateRange || { mode: "all" }))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  if (!filtered.length) return <div style={{ textAlign: "center", padding: "40px 0", color: "#9CA3AF", fontSize: 14 }}>No received funds found.</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {filtered.map(f => (
+        <div key={f.id} style={{ padding: "14px 16px", background: "#FAFAFA", borderRadius: 12, border: "1px solid #F3F4F6", display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: "#F0FDF4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>💵</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
+              <span style={{ fontWeight: 700, fontSize: 15, color: "#065F46" }}>{fmt(f.amount)}</span>
+              {f.pfrNo && <span style={{ fontSize: 11, background: "#EFF6FF", color: "#1E40AF", padding: "1px 8px", borderRadius: 10, fontWeight: 700 }}>PFR: {f.pfrNo}</span>}
+            </div>
+            <div style={{ fontSize: 13, color: "#374151", fontWeight: 600 }}>{f.purpose}</div>
+            <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>
+              {f.date}{f.source ? ` · From: ${f.source}` : ""}
+              {f.remarks ? <span style={{ marginLeft: 8, color: "#6B7280", fontStyle: "italic" }}>{f.remarks}</span> : null}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            <Button small variant="outline" onClick={() => onEdit(f)}>✏️ Edit</Button>
+            <Button small variant="danger" onClick={() => onDelete(f)}>🗑️</Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── ADMIN DASHBOARD SUMMARY ──────────────────────────────────────────────────
-function AdminSummary({ expenses, requests, reservedFund, dashMonth }) {
+function AdminSummary({ expenses, requests, receivedFunds, dashFilter }) {
   const engineers = USERS.filter(u => u.role === "engineer");
 
-  // Filter by selected month (or all)
-  const filterByMonth = (items) => dashMonth === "all" ? items : items.filter(i => monthOf(i.date) === dashMonth);
+  const mReqs = requests.filter(r => inRange(r.date, dashFilter));
+  const mExps = expenses.filter(e => inRange(e.date, dashFilter));
+  const mFunds = receivedFunds.filter(f => inRange(f.date, dashFilter));
 
-  const mRequests = filterByMonth(requests);
-  const mExpenses = filterByMonth(expenses);
-
-  const totalDisbursed = mRequests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
-  const remainingReserved = reservedFund - requests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0); // always total reserved minus all-time disbursed
-
-  // Total submitted bills = approved + pending expenses (all submitted, not rejected)
-  const totalSubmittedBills = mExpenses.filter(e => e.status !== "rejected").reduce((s, e) => s + e.amount, 0);
-  // Pending bills = total distributed (approved fund requests for month) - total submitted bills
-  const pendingBillsAmount = totalDisbursed - totalSubmittedBills;
+  // Total received in period
+  const totalReceived = mFunds.reduce((s, f) => s + f.amount, 0);
+  // Total distributed (approved fund requests) in period
+  const totalDisbursed = mReqs.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
+  // Total submitted bills = sum of APPROVED expense amounts only (post-approval figures)
+  const totalSubmittedBills = mExps.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
+  // Pending bills = distributed − submitted (approved) bills
+  const unsubmitted = totalDisbursed - totalSubmittedBills;
+  // Remaining received = total received − total distributed
+  const remainingReceived = totalReceived - totalDisbursed;
 
   return (
     <>
-      {/* Reserved Fund Overview */}
+      {/* Fund overview banner */}
       <Card style={{ marginBottom: 20, background: "linear-gradient(135deg,#0F172A,#1E1B4B)", border: "none" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-          <div style={{ color: "#fff" }}><div style={{ fontSize: 12, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Reserved Fund Pool</div><div style={{ fontSize: 28, fontWeight: 800, color: "#60A5FA" }}>{fmt(reservedFund)}</div></div>
-          <div style={{ width: 1, height: 50, background: "rgba(255,255,255,0.1)" }} />
-          <div style={{ textAlign: "center" }}><div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 4 }}>Distributed{dashMonth !== "all" ? " (month)" : ""}</div><div style={{ fontSize: 20, fontWeight: 700, color: "#F59E0B" }}>{fmt(totalDisbursed)}</div></div>
-          <div style={{ width: 1, height: 50, background: "rgba(255,255,255,0.1)" }} />
-          <div style={{ textAlign: "center" }}><div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 4 }}>Remaining (All-time)</div><div style={{ fontSize: 20, fontWeight: 700, color: remainingReserved < 0 ? "#EF4444" : "#10B981" }}>{fmt(remainingReserved)}</div></div>
-          <div style={{ width: 1, height: 50, background: "rgba(255,255,255,0.1)" }} />
+        <div style={{ display: "flex", justifyContent: "space-around", alignItems: "center", flexWrap: "wrap", gap: 16, marginBottom: totalReceived > 0 ? 16 : 0 }}>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 4 }}>Total Submitted Bills</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: "#EF4444" }}>{fmt(totalSubmittedBills)}</div>
-            <div style={{ fontSize: 10, color: "#94A3B8" }}>approved + pending</div>
+            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Received Fund</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "#34D399" }}>{fmt(totalReceived)}</div>
           </div>
-          <div style={{ width: 1, height: 50, background: "rgba(255,255,255,0.1)" }} />
+          <div style={{ color: "#334155", fontSize: 20 }}>→</div>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 4 }}>Unsubmitted Bills</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: pendingBillsAmount < 0 ? "#EF4444" : "#F59E0B" }}>{fmt(Math.max(0, pendingBillsAmount))}</div>
-            <div style={{ fontSize: 10, color: "#94A3B8" }}>distributed − submitted</div>
+            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Distributed</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "#F59E0B" }}>{fmt(totalDisbursed)}</div>
+          </div>
+          <div style={{ color: "#334155", fontSize: 20 }}>→</div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Total Submitted Bills</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "#EF4444" }}>{fmt(totalSubmittedBills)}</div>
+            <div style={{ fontSize: 10, color: "#64748B" }}>approved bills sum</div>
+          </div>
+          <div style={{ color: "#334155", fontSize: 20 }}>│</div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Pending Bills</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: unsubmitted < 0 ? "#EF4444" : "#FBBF24" }}>{fmt(Math.max(0, unsubmitted))}</div>
+            <div style={{ fontSize: 10, color: "#64748B" }}>distributed − submitted</div>
+          </div>
+          <div style={{ color: "#334155", fontSize: 20 }}>│</div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Fund Balance</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: remainingReceived < 0 ? "#EF4444" : "#60A5FA" }}>{fmt(remainingReceived)}</div>
+            <div style={{ fontSize: 10, color: "#64748B" }}>received − distributed</div>
           </div>
         </div>
-        {reservedFund > 0 && (
+        {totalReceived > 0 && (
           <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 8, height: 8, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${Math.min(100, (requests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0) / reservedFund) * 100)}%`, background: "linear-gradient(90deg,#3B82F6,#7C3AED)", borderRadius: 8, transition: "width 0.5s" }} />
+            <div style={{ height: "100%", width: `${Math.min(100, (totalDisbursed / totalReceived) * 100)}%`, background: "linear-gradient(90deg,#3B82F6,#7C3AED)", borderRadius: 8, transition: "width 0.5s" }} />
           </div>
         )}
       </Card>
@@ -489,21 +592,22 @@ function AdminSummary({ expenses, requests, reservedFund, dashMonth }) {
       {/* Per-engineer breakdown */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14, marginBottom: 24 }}>
         {engineers.map(eng => {
-          const engReqs = mRequests.filter(r => r.engineerId === eng.id);
-          const engExps = mExpenses.filter(e => e.engineerId === eng.id);
+          const engReqs = mReqs.filter(r => r.engineerId === eng.id);
+          const engExps = mExps.filter(e => e.engineerId === eng.id);
           const funds = engReqs.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
           const approvedBills = engExps.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
-          const submittedBills = engExps.filter(e => e.status !== "rejected").reduce((s, e) => s + e.amount, 0);
+          const pendingBills = engExps.filter(e => e.status === "pending").reduce((s, e) => s + e.amount, 0);
           const bal = funds - approvedBills;
-          const pendingBillsEng = engExps.filter(e => e.status === "pending").reduce((s, e) => s + e.amount, 0);
           return (
             <Card key={eng.id} style={{ padding: 16 }}>
-              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}><Avatar user={eng} size={36} /><div><div style={{ fontWeight: 700, fontSize: 14 }}>{eng.name}</div><div style={{ fontSize: 11, color: "#9CA3AF" }}>{eng.department}</div></div></div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
+                <Avatar user={eng} size={36} />
+                <div><div style={{ fontWeight: 700, fontSize: 14 }}>{eng.name}</div><div style={{ fontSize: 11, color: "#9CA3AF" }}>{eng.department}</div></div>
+              </div>
               <div style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Funds Distributed</span><span style={{ color: "#10B981", fontWeight: 700 }}>{fmt(funds)}</span></div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Submitted Bills</span><span style={{ color: "#3B82F6", fontWeight: 700 }}>{fmt(submittedBills)}</span></div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Approved Bills</span><span style={{ color: "#EF4444", fontWeight: 700 }}>{fmt(approvedBills)}</span></div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Pending Bills</span><span style={{ color: "#F59E0B", fontWeight: 700 }}>{fmt(pendingBillsEng)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Submitted Bills</span><span style={{ color: "#EF4444", fontWeight: 700 }}>{fmt(approvedBills)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Pending Bills</span><span style={{ color: "#F59E0B", fontWeight: 700 }}>{fmt(pendingBills)}</span></div>
                 <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, borderTop: "1px solid #F3F4F6" }}><span style={{ color: "#374151", fontWeight: 600 }}>Balance</span><span style={{ color: bal < 0 ? "#EF4444" : "#1E40AF", fontWeight: 700 }}>{fmt(bal)}</span></div>
               </div>
             </Card>
@@ -516,39 +620,42 @@ function AdminSummary({ expenses, requests, reservedFund, dashMonth }) {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [user, setUser] = useState(() => { const saved = localStorage.getItem("activeUser"); return saved ? JSON.parse(saved) : null; });
+  const [user, setUser] = useState(() => { const s = localStorage.getItem("activeUser"); return s ? JSON.parse(s) : null; });
   const handleLogin = (u) => { localStorage.setItem("activeUser", JSON.stringify(u)); setUser(u); };
   const handleLogout = () => { localStorage.removeItem("activeUser"); setUser(null); };
 
   const [expenses, setExpenses] = useState([]);
   const [requests, setRequests] = useState([]);
-  // CHANGE 4: Reserved fund stored in Firestore meta doc
-  const [reservedFund, setReservedFund] = useState(0);
-  const [showReservedModal, setShowReservedModal] = useState(false);
+  const [receivedFunds, setReceivedFunds] = useState([]);
 
   const [tab, setTab] = useState("dashboard");
   const [showFundForm, setShowFundForm] = useState(false);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [showReceivedFundModal, setShowReceivedFundModal] = useState(false);
+  const [editReceivedFund, setEditReceivedFund] = useState(null);
 
   const [editExpense, setEditExpense] = useState(null);
   const [reviewItem, setReviewItem] = useState(null);
   const [viewAttachment, setViewAttachment] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
   const [deleteItemType, setDeleteItemType] = useState("expense");
-  const [dashMonth, setDashMonth] = useState("all"); // for admin dashboard month filter
 
-  const [filterPeriod, setFilterPeriod] = useState("all");
+  // Dashboard date filter (admin)
+  const [dashFilter, setDashFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
+
+  // Tabs filter (requests/expenses)
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterEngineer, setFilterEngineer] = useState("");
+  const [tabDateFilter, setTabDateFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
+
+  // Received funds tab filter
+  const [rfDateFilter, setRfDateFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
 
   useEffect(() => {
-    const unsubExp = onSnapshot(collection(db, "expenses"), (snap) => setExpenses(snap.docs.map(d => d.data())));
-    const unsubReq = onSnapshot(collection(db, "requests"), (snap) => setRequests(snap.docs.map(d => d.data())));
-    // Load reserved fund from meta
-    const unsubMeta = onSnapshot(doc(db, "meta", "admin"), (d) => {
-      if (d.exists()) setReservedFund(d.data().reservedFund || 0);
-    });
-    return () => { unsubExp(); unsubReq(); unsubMeta(); };
+    const unsubExp = onSnapshot(collection(db, "expenses"), snap => setExpenses(snap.docs.map(d => d.data())));
+    const unsubReq = onSnapshot(collection(db, "requests"), snap => setRequests(snap.docs.map(d => d.data())));
+    const unsubRF = onSnapshot(collection(db, "receivedFunds"), snap => setReceivedFunds(snap.docs.map(d => d.data())));
+    return () => { unsubExp(); unsubReq(); unsubRF(); };
   }, []);
 
   if (!user) return <Login onLogin={handleLogin} />;
@@ -557,73 +664,72 @@ export default function App() {
   const myRequests = requests.filter(r => r.engineerId === user.id);
   const myExpenses = expenses.filter(e => e.engineerId === user.id);
 
-  // CHANGE 2: Available balance only uses APPROVED expenses
   const approvedFunds = myRequests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
   const approvedExpenses = myExpenses.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
   const availableBalance = approvedFunds - approvedExpenses;
 
-  // Firebase Writes
+  // All months from all data for dropdowns
+  const allMonths = Array.from(new Set([
+    ...expenses.map(e => monthOf(e.date)),
+    ...requests.map(r => monthOf(r.date)),
+    ...receivedFunds.map(f => monthOf(f.date)),
+  ])).filter(Boolean).sort((a, b) => b.localeCompare(a));
+
+  // Firebase writes
   const addRequest = async (req) => await setDoc(doc(db, "requests", req.id), req);
   const addExpense = async (exp) => await setDoc(doc(db, "expenses", exp.id), exp);
 
-  // CHANGE 5: When approving with edited amount, write editLog
+  const saveReceivedFund = async (fund) => {
+    await setDoc(doc(db, "receivedFunds", fund.id), fund);
+  };
+  const deleteReceivedFund = async (id) => await deleteDoc(doc(db, "receivedFunds", id));
+
   const approveItem = async (col, id, finalAmount, comment, originalAmount) => {
     const updates = { status: "approved", amount: finalAmount };
-    if (finalAmount !== originalAmount) {
-      // Fetch existing editLog
-      const existing = col === "expenses" ? expenses.find(e => e.id === id) : requests.find(r => r.id === id);
-      const log = existing?.editLog || [];
+    const existing = col === "expenses" ? expenses.find(e => e.id === id) : requests.find(r => r.id === id);
+    if (finalAmount !== originalAmount || comment) {
+      const log = [...(existing?.editLog || [])];
       log.push({ date: today(), before: originalAmount, after: finalAmount, comment: comment || "" });
-      updates.editLog = log;
-    } else if (comment) {
-      const existing = col === "expenses" ? expenses.find(e => e.id === id) : requests.find(r => r.id === id);
-      const log = existing?.editLog || [];
-      log.push({ date: today(), before: originalAmount, after: finalAmount, comment });
       updates.editLog = log;
     }
     await updateDoc(doc(db, col, id), updates);
   };
 
   const rejectItem = async (col, id, comment) => {
+    const existing = col === "expenses" ? expenses.find(e => e.id === id) : requests.find(r => r.id === id);
     const updates = { status: "rejected" };
     if (comment) {
-      const existing = col === "expenses" ? expenses.find(e => e.id === id) : requests.find(r => r.id === id);
-      const log = existing?.editLog || [];
-      const item = existing;
-      log.push({ date: today(), before: item?.amount, after: item?.amount, comment: `REJECTED: ${comment}` });
+      const log = [...(existing?.editLog || [])];
+      log.push({ date: today(), before: existing?.amount, after: existing?.amount, comment: `REJECTED: ${comment}` });
       updates.editLog = log;
     }
     await updateDoc(doc(db, col, id), updates);
   };
 
-  // CHANGE: Delete expense
-  const deleteExpense = async (id) => {
-    await deleteDoc(doc(db, "expenses", id));
-  };
-
-  // CHANGE 2: Delete request
-  const deleteRequest = async (id) => {
-    await deleteDoc(doc(db, "requests", id));
-  };
-
-  // CHANGE 4: Save reserved fund
-  const saveReservedFund = async (amount) => {
-    await setDoc(doc(db, "meta", "admin"), { reservedFund: amount }, { merge: true });
-    setReservedFund(amount);
-  };
+  const deleteExpense = async (id) => await deleteDoc(doc(db, "expenses", id));
+  const deleteRequest = async (id) => await deleteDoc(doc(db, "requests", id));
 
   const pendingReqCount = requests.filter(r => r.status === "pending").length;
   const pendingExpCount = expenses.filter(e => e.status === "pending").length;
 
-  const tabs = isAdmin
-    ? [{ id: "dashboard", label: "Dashboard", icon: "📊" }, { id: "requests", label: `Requests${pendingReqCount ? ` (${pendingReqCount})` : ""}`, icon: "📋" }, { id: "expenses", label: `Expenses${pendingExpCount ? ` (${pendingExpCount})` : ""}`, icon: "🧾" }]
-    : [{ id: "dashboard", label: "Dashboard", icon: "📊" }, { id: "requests", label: "Fund Requests", icon: "💰" }, { id: "expenses", label: "My Expenses", icon: "🧾" }];
+  const adminTabs = [
+    { id: "dashboard", label: "Dashboard", icon: "📊" },
+    { id: "received", label: "Received Funds", icon: "💵" },
+    { id: "requests", label: `Requests${pendingReqCount ? ` (${pendingReqCount})` : ""}`, icon: "📋" },
+    { id: "expenses", label: `Expenses${pendingExpCount ? ` (${pendingExpCount})` : ""}`, icon: "🧾" },
+  ];
+  const engTabs = [
+    { id: "dashboard", label: "Dashboard", icon: "📊" },
+    { id: "requests", label: "Fund Requests", icon: "💰" },
+    { id: "expenses", label: "My Expenses", icon: "🧾" },
+  ];
+  const tabs = isAdmin ? adminTabs : engTabs;
 
-  const filterUI = (
+  const tabFilterUI = (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
       {isAdmin && <select value={filterEngineer} onChange={e => setFilterEngineer(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}><option value="">All Engineers</option>{USERS.filter(u => u.role === "engineer").map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select>}
       <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}><option value="all">All Statuses</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
-      <select value={filterPeriod} onChange={e => setFilterPeriod(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}><option value="all">All Time</option><option value="weekly">This Week</option><option value="monthly">This Month</option></select>
+      <DateRangeFilter filter={tabDateFilter} onChange={setTabDateFilter} allMonths={allMonths} />
     </div>
   );
 
@@ -631,16 +737,15 @@ export default function App() {
     <div style={{ minHeight: "100vh", background: "#F8FAFC", fontFamily: "'DM Sans', sans-serif" }}>
       {/* NAV */}
       <div style={{ background: "#0F172A", padding: "0 24px", position: "sticky", top: 0, zIndex: 100, overflowX: "auto" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", gap: 24, height: 58, minWidth: 600 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}><div style={{ fontSize: 22 }}>⚡</div><span style={{ color: "#fff", fontWeight: 800, fontSize: 16 }}>FieldExpense</span></div>
-          <div style={{ display: "flex", gap: 4, flex: 1 }}>
+        <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", gap: 20, height: 58, minWidth: 600 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}><div style={{ fontSize: 22 }}>⚡</div><span style={{ color: "#fff", fontWeight: 800, fontSize: 16 }}>FieldExpense</span></div>
+          <div style={{ display: "flex", gap: 2, flex: 1 }}>
             {tabs.map(t => (
-              <button key={t.id} onClick={() => { setTab(t.id); setFilterStatus("all"); setFilterPeriod("all"); setFilterEngineer(""); }} style={{ background: tab === t.id ? "rgba(59,130,246,0.2)" : "none", border: "none", borderRadius: 8, padding: "6px 14px", color: tab === t.id ? "#60A5FA" : "#94A3B8", cursor: "pointer", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, fontFamily: "'DM Sans', sans-serif" }}>{t.icon} {t.label}</button>
+              <button key={t.id} onClick={() => { setTab(t.id); setFilterStatus("all"); setFilterEngineer(""); setTabDateFilter({ mode: "all", month: monthOf(today()), from: today(), to: today() }); }}
+                style={{ background: tab === t.id ? "rgba(59,130,246,0.2)" : "none", border: "none", borderRadius: 8, padding: "6px 12px", color: tab === t.id ? "#60A5FA" : "#94A3B8", cursor: "pointer", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>{t.icon} {t.label}</button>
             ))}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {/* CHANGE 4: Reserved fund button in nav for admin */}
-            {isAdmin && <Button small variant="warning" onClick={() => setShowReservedModal(true)}>🏦 Reserved Fund</Button>}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <Avatar user={user} size={32} />
             <button onClick={handleLogout} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 8, color: "#94A3B8", padding: "6px 12px", cursor: "pointer", fontSize: 12, fontFamily: "'DM Sans', sans-serif" }}>Sign out</button>
           </div>
@@ -648,42 +753,43 @@ export default function App() {
       </div>
 
       {/* CONTENT */}
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 24px" }}>
+      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 24px" }}>
+
+        {/* ── DASHBOARD ── */}
         {tab === "dashboard" && (
           <>
             {isAdmin ? (
               <>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
                   <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Admin Dashboard</h2>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                    <select
-                      value={dashMonth}
-                      onChange={e => setDashMonth(e.target.value)}
-                      style={{ ...inputStyle, width: "auto", padding: "8px 14px", fontWeight: 600 }}
-                    >
-                      <option value="all">All Months</option>
-                      {Array.from(new Set([
-                        ...expenses.map(e => monthOf(e.date)),
-                        ...requests.map(r => monthOf(r.date)),
-                      ])).filter(Boolean).sort((a, b) => b.localeCompare(a)).map(m => (
-                        <option key={m} value={m}>{new Date(m + "-01").toLocaleString("en-IN", { month: "long", year: "numeric" })}</option>
-                      ))}
-                    </select>
-                    <Button variant="warning" onClick={() => setShowReservedModal(true)}>🏦 Set Reserved Fund</Button>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Filter Period</div>
+                    <DateRangeFilter filter={dashFilter} onChange={setDashFilter} allMonths={allMonths} />
                   </div>
                 </div>
+
+                {/* Top stat cards */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 24 }}>
                   {(() => {
-                    const mReqs = dashMonth === "all" ? requests : requests.filter(r => monthOf(r.date) === dashMonth);
-                    const mExps = dashMonth === "all" ? expenses : expenses.filter(e => monthOf(e.date) === dashMonth);
+                    const mR = requests.filter(r => inRange(r.date, dashFilter));
+                    const mE = expenses.filter(e => inRange(e.date, dashFilter));
+                    const mF = receivedFunds.filter(f => inRange(f.date, dashFilter));
                     return [
-                      { label: "Pending Funds", value: mReqs.filter(r => r.status === "pending").length, icon: "⏳", color: "#D97706" },
-                      { label: "Pending Expenses", value: mExps.filter(e => e.status === "pending").length, icon: "📋", color: "#EF4444" },
-                      { label: "Total Disbursed", value: fmt(mReqs.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0)), icon: "💰", color: "#065F46" },
+                      { label: "Received Fund", value: fmt(mF.reduce((s, f) => s + f.amount, 0)), icon: "💵", color: "#065F46" },
+                      { label: "Pending Fund Requests", value: mR.filter(r => r.status === "pending").length, icon: "⏳", color: "#D97706" },
+                      { label: "Pending Expenses", value: mE.filter(e => e.status === "pending").length, icon: "📋", color: "#EF4444" },
+                      { label: "Total Distributed", value: fmt(mR.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0)), icon: "💰", color: "#1E40AF" },
                     ];
-                  })().map(s => <Card key={s.label} style={{ padding: "18px 20px" }}><div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div><div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div><div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>{s.label}</div></Card>)}
+                  })().map(s => (
+                    <Card key={s.label} style={{ padding: "18px 20px" }}>
+                      <div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div>
+                      <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>{s.label}</div>
+                    </Card>
+                  ))}
                 </div>
-                <AdminSummary expenses={expenses} requests={requests} reservedFund={reservedFund} dashMonth={dashMonth} />
+
+                <AdminSummary expenses={expenses} requests={requests} receivedFunds={receivedFunds} dashFilter={dashFilter} />
               </>
             ) : (
               <>
@@ -691,7 +797,6 @@ export default function App() {
                   <div><h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800 }}>Welcome, {user.name} 👋</h2><p style={{ margin: 0, color: "#6B7280", fontSize: 14 }}>{user.department}</p></div>
                   <div style={{ display: "flex", gap: 10 }}><Button onClick={() => setShowFundForm(true)} variant="outline">💰 Request Funds</Button><Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button></div>
                 </div>
-
                 <Card style={{ marginBottom: 20 }}>
                   <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700 }}>📒 My Ledger</h3>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
@@ -708,62 +813,133 @@ export default function App() {
                     ))}
                   </div>
                 </Card>
-
                 <Card>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}><h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Recent Expenses</h3><Button small variant="ghost" onClick={() => setTab("expenses")}>View all →</Button></div>
-                  <ExpenseList expenses={myExpenses.slice(0, 5)} onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }} onViewAttachment={setViewAttachment} onDelete={exp => { setDeleteItem(exp); setDeleteItemType("expense"); }} filter={{ period: "all", status: "all", engineer: "" }} />
+                  <ExpenseList expenses={myExpenses.slice(0, 5)} onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }} onViewAttachment={setViewAttachment} onDelete={exp => { setDeleteItem(exp); setDeleteItemType("expense"); }} filter={{ dateRange: { mode: "all" }, status: "all" }} />
                 </Card>
               </>
             )}
           </>
         )}
 
-        {tab === "requests" && (
+        {/* ── RECEIVED FUNDS (admin only) ── */}
+        {tab === "received" && isAdmin && (
           <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}><h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Fund Requests</h2>{!isAdmin && <Button onClick={() => setShowFundForm(true)}>💰 New Request</Button>}</div>
-            {filterUI}
-            <Card><RequestList requests={requests} isAdmin={isAdmin} engineerId={user.id} filter={{ status: filterStatus, period: filterPeriod, engineer: filterEngineer }} onReview={req => setReviewItem(req)} onDelete={req => { setDeleteItem(req); setDeleteItemType("request"); }} /></Card>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+              <div>
+                <h2 style={{ margin: "0 0 2px", fontSize: 22, fontWeight: 800 }}>💵 Received Funds</h2>
+                <p style={{ margin: 0, fontSize: 13, color: "#6B7280" }}>Record incoming funds with date, purpose and PFR details</p>
+              </div>
+              <Button variant="teal" onClick={() => { setEditReceivedFund(null); setShowReceivedFundModal(true); }}>+ Add Received Fund</Button>
+            </div>
+
+            {/* Summary card */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, marginBottom: 20 }}>
+              {(() => {
+                const filtered = receivedFunds.filter(f => inRange(f.date, rfDateFilter));
+                const total = filtered.reduce((s, f) => s + f.amount, 0);
+                const entries = filtered.length;
+                const latest = filtered.sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+                return [
+                  { label: "Total Received", value: fmt(total), icon: "💵", color: "#065F46" },
+                  { label: "Entries", value: entries, icon: "📋", color: "#1E40AF" },
+                  { label: "Latest Entry", value: latest ? latest.date : "—", icon: "📅", color: "#7C3AED" },
+                ];
+              })().map(s => (
+                <Card key={s.label} style={{ padding: "16px 18px" }}>
+                  <div style={{ fontSize: 22, marginBottom: 6 }}>{s.icon}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: s.color }}>{s.value}</div>
+                  <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>{s.label}</div>
+                </Card>
+              ))}
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <DateRangeFilter filter={rfDateFilter} onChange={setRfDateFilter} allMonths={allMonths} />
+            </div>
+
+            <Card>
+              <ReceivedFundList
+                funds={receivedFunds}
+                filter={{ dateRange: rfDateFilter }}
+                onEdit={f => { setEditReceivedFund(f); setShowReceivedFundModal(true); }}
+                onDelete={f => { setDeleteItem(f); setDeleteItemType("received"); }}
+              />
+            </Card>
           </>
         )}
 
+        {/* ── FUND REQUESTS ── */}
+        {tab === "requests" && (
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Fund Requests</h2>
+              {!isAdmin && <Button onClick={() => setShowFundForm(true)}>💰 New Request</Button>}
+            </div>
+            {tabFilterUI}
+            <Card>
+              <RequestList requests={requests} isAdmin={isAdmin} engineerId={user.id}
+                filter={{ dateRange: tabDateFilter, status: filterStatus, engineer: filterEngineer }}
+                onReview={req => setReviewItem(req)}
+                onDelete={req => { setDeleteItem(req); setDeleteItemType("request"); }} />
+            </Card>
+          </>
+        )}
+
+        {/* ── EXPENSES ── */}
         {tab === "expenses" && (
           <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}><h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>{isAdmin ? "All Expenses" : "My Expenses"}</h2>{!isAdmin && <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>}</div>
-            {filterUI}
-            <Card><ExpenseList expenses={isAdmin ? expenses : myExpenses} onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }} onViewAttachment={setViewAttachment} onReview={exp => setReviewItem(exp)} onDelete={exp => { setDeleteItem(exp); setDeleteItemType("expense"); }} isAdmin={isAdmin} filter={{ status: filterStatus, period: filterPeriod, engineer: filterEngineer }} /></Card>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>{isAdmin ? "All Expenses" : "My Expenses"}</h2>
+              {!isAdmin && <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>}
+            </div>
+            {tabFilterUI}
+            <Card>
+              <ExpenseList expenses={isAdmin ? expenses : myExpenses}
+                onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }}
+                onViewAttachment={setViewAttachment}
+                onReview={exp => setReviewItem(exp)}
+                onDelete={exp => { setDeleteItem(exp); setDeleteItemType("expense"); }}
+                isAdmin={isAdmin}
+                filter={{ dateRange: tabDateFilter, status: filterStatus, engineer: filterEngineer }} />
+            </Card>
           </>
         )}
       </div>
 
+      {/* ── MODALS ── */}
       {showFundForm && <FundRequestForm user={user} onSubmit={addRequest} onClose={() => setShowFundForm(false)} />}
       {showExpenseForm && <ExpenseForm user={user} availableBalance={editExpense ? availableBalance + editExpense.amount : availableBalance} onSubmit={addExpense} onClose={() => { setShowExpenseForm(false); setEditExpense(null); }} editItem={editExpense} />}
+      {showReceivedFundModal && <ReceivedFundModal onSave={saveReceivedFund} onClose={() => { setShowReceivedFundModal(false); setEditReceivedFund(null); }} editItem={editReceivedFund} />}
 
       {reviewItem && (
-        <AdminReviewModal
-          item={reviewItem}
-          type={reviewItem.type}
-          onClose={() => setReviewItem(null)}
+        <AdminReviewModal item={reviewItem} type={reviewItem.type} onClose={() => setReviewItem(null)}
           onApprove={(id, amt, comment, origAmt) => approveItem(reviewItem.type === "expense" ? "expenses" : "requests", id, amt, comment, origAmt)}
-          onReject={(id, comment) => rejectItem(reviewItem.type === "expense" ? "expenses" : "requests", id, comment)}
-        />
+          onReject={(id, comment) => rejectItem(reviewItem.type === "expense" ? "expenses" : "requests", id, comment)} />
       )}
 
-      {deleteItem && <ConfirmDeleteModal item={deleteItem} itemType={deleteItemType} onConfirm={(id) => deleteItemType === "request" ? deleteRequest(id) : deleteExpense(id)} onClose={() => { setDeleteItem(null); setDeleteItemType("expense"); }} />}
-
-      {showReservedModal && <ReservedFundModal currentReserved={reservedFund} onSave={saveReservedFund} onClose={() => setShowReservedModal(false)} />}
+      {deleteItem && (
+        <ConfirmDeleteModal item={deleteItem} itemType={deleteItemType}
+          onConfirm={(id) => {
+            if (deleteItemType === "expense") deleteExpense(id);
+            else if (deleteItemType === "request") deleteRequest(id);
+            else if (deleteItemType === "received") deleteReceivedFund(id);
+          }}
+          onClose={() => { setDeleteItem(null); setDeleteItemType("expense"); }} />
+      )}
 
       {viewAttachment && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: 20 }}>
           <div style={{ background: "#fff", borderRadius: 16, maxWidth: 700, width: "100%", maxHeight: "90vh", overflow: "auto" }}>
             <div style={{ padding: "16px 20px", borderBottom: "1px solid #E5E7EB", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div><strong style={{ fontSize: 15 }}>{viewAttachment.attachName}</strong></div>
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <strong style={{ fontSize: 15 }}>{viewAttachment.attachName}</strong>
+              <div style={{ display: "flex", gap: 10 }}>
                 <Button small variant="outline" onClick={() => downloadAttachment(viewAttachment)}>⬇️ Download</Button>
                 <button onClick={() => setViewAttachment(null)} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer" }}>✕</button>
               </div>
             </div>
             <div style={{ padding: 20, textAlign: "center" }}>
-              {viewAttachment.attachment.startsWith("data:image") ? <img src={viewAttachment.attachment} alt="receipt" style={{ maxWidth: "100%", borderRadius: 8 }} /> : <iframe src={viewAttachment.attachment} style={{ width: "100%", height: 500, border: "none" }} />}
+              {viewAttachment.attachment.startsWith("data:image") ? <img src={viewAttachment.attachment} alt="receipt" style={{ maxWidth: "100%", borderRadius: 8 }} /> : <iframe src={viewAttachment.attachment} style={{ width: "100%", height: 500, border: "none" }} title="attachment" />}
             </div>
           </div>
         </div>
