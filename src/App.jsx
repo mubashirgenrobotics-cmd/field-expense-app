@@ -3,7 +3,9 @@ import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from "fireb
 import { db } from "./firebase";
 
 // ─── INITIAL DATA ──────────────────────────────────────────────────────────────
-const USERS = [
+// Engineers and admin are now stored in Firestore under "users" collection
+// This is the fallback/seed data only
+const DEFAULT_USERS = [
   { id: "admin", name: "Admin", role: "admin", password: "admin123", avatar: "A" },
   { id: "eng1", name: "Arjun Menon", role: "engineer", password: "eng123", avatar: "AM", department: "South Kerala" },
   { id: "eng2", name: "Priya Nair", role: "engineer", password: "eng456", avatar: "PN", department: "North Kerala" },
@@ -28,8 +30,8 @@ const fmt = (n) => "₹" + Number(n || 0).toLocaleString("en-IN", { minimumFract
 const today = () => new Date().toISOString().split("T")[0];
 const uid = () => Math.random().toString(36).slice(2, 10);
 const monthOf = (d) => d?.slice(0, 7);
+const initials = (name) => name ? name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0,2) : "?";
 
-// Check if a date falls within a filter range: { mode: "all"|"month"|"custom", month: "YYYY-MM", from: "YYYY-MM-DD", to: "YYYY-MM-DD" }
 function inRange(date, f) {
   if (!date) return false;
   if (f.mode === "all") return true;
@@ -79,6 +81,179 @@ function downloadAttachment(exp) {
   a.click();
 }
 
+// ─── EXPENSE REPORT PDF GENERATOR ─────────────────────────────────────────────
+async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, requests, dateFrom, dateTo }) {
+  const filtered = expenses.filter(e => {
+    if (engineer && e.engineerId !== engineer.id) return false;
+    if (dateFrom && e.date < dateFrom) return false;
+    if (dateTo && e.date > dateTo) return false;
+    return true;
+  });
+
+  const filteredFunds = receivedFunds.filter(f => {
+    if (dateFrom && f.date < dateFrom) return false;
+    if (dateTo && f.date > dateTo) return false;
+    return true;
+  });
+
+  const totalReceived = filteredFunds.reduce((s, f) => s + f.amount, 0);
+  const totalExpenses = filtered.reduce((s, e) => s + e.amount, 0);
+  const approvedExpenses = filtered.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
+  const balance = totalReceived - approvedExpenses;
+  const dateRange = `${dateFrom || "All"} to ${dateTo || "All"}`;
+
+  // Load jsPDF dynamically
+  const script = document.createElement("script");
+  script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+  document.head.appendChild(script);
+  await new Promise(r => { script.onload = r; });
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const W = 210, M = 16;
+
+  // Header
+  pdf.setFillColor(15, 23, 42);
+  pdf.rect(0, 0, W, 38, "F");
+  pdf.setTextColor(255, 255, 255);
+  pdf.setFontSize(20); pdf.setFont("helvetica", "bold");
+  pdf.text("FieldExpense Pro", M, 14);
+  pdf.setFontSize(10); pdf.setFont("helvetica", "normal");
+  pdf.text("Expense Report", M, 21);
+  pdf.setFontSize(9);
+  pdf.text(`Generated: ${new Date().toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" })}`, W - M, 21, { align: "right" });
+
+  // Engineer info
+  pdf.setFontSize(13); pdf.setFont("helvetica", "bold"); pdf.setTextColor(15, 23, 42);
+  pdf.text(`Engineer: ${engineer ? engineer.name : "All Engineers"}`, M, 50);
+  pdf.setFontSize(10); pdf.setFont("helvetica", "normal"); pdf.setTextColor(107, 114, 128);
+  pdf.text(`Department: ${engineer ? (engineer.department || "—") : "—"}`, M, 57);
+  pdf.text(`Period: ${dateRange}`, M, 63);
+
+  // Summary box
+  pdf.setDrawColor(229, 231, 235); pdf.setLineWidth(0.3);
+  pdf.setFillColor(249, 250, 251);
+  pdf.roundedRect(M, 70, W - M*2, 42, 3, 3, "FD");
+  pdf.setFontSize(9); pdf.setTextColor(107, 114, 128); pdf.setFont("helvetica", "normal");
+
+  const summaryItems = [
+    ["Total Received (period)", fmt(totalReceived), "#065F46"],
+    ["Total Submitted Expenses", fmt(totalExpenses), "#EF4444"],
+    ["Approved Expenses", fmt(approvedExpenses), "#10B981"],
+    ["Balance / Reimbursement", fmt(balance), balance < 0 ? "#EF4444" : "#1E40AF"],
+  ];
+
+  summaryItems.forEach(([label, value, color], i) => {
+    const x = M + (i % 2) * ((W - M*2) / 2) + 6;
+    const y = 79 + Math.floor(i / 2) * 18;
+    pdf.setTextColor(107, 114, 128); pdf.setFontSize(8);
+    pdf.text(label, x, y);
+    const [r2, g2, b2] = hexToRgb(color);
+    pdf.setTextColor(r2, g2, b2); pdf.setFontSize(12); pdf.setFont("helvetica", "bold");
+    pdf.text(value, x, y + 7);
+    pdf.setFont("helvetica", "normal");
+  });
+
+  // Expenses table
+  let y = 120;
+  pdf.setFontSize(11); pdf.setFont("helvetica", "bold"); pdf.setTextColor(15, 23, 42);
+  pdf.text("Expense Details", M, y); y += 6;
+
+  // Table header
+  pdf.setFillColor(15, 23, 42);
+  pdf.rect(M, y, W - M*2, 7, "F");
+  pdf.setTextColor(255,255,255); pdf.setFontSize(8); pdf.setFont("helvetica", "bold");
+  const cols = [M+2, M+22, M+60, M+92, M+120, M+148];
+  pdf.text("Date", cols[0], y+5);
+  pdf.text("Description", cols[1], y+5);
+  pdf.text("Category", cols[2], y+5);
+  pdf.text("Customer", cols[3], y+5);
+  pdf.text("Amount", cols[4], y+5);
+  pdf.text("Status", cols[5], y+5);
+  y += 8;
+
+  pdf.setFont("helvetica", "normal"); pdf.setFontSize(8);
+  filtered.forEach((exp, i) => {
+    if (y > 270) { pdf.addPage(); y = 20; }
+    if (i % 2 === 0) { pdf.setFillColor(249, 250, 251); pdf.rect(M, y-1, W-M*2, 7, "F"); }
+    pdf.setTextColor(15, 23, 42);
+    pdf.text(exp.date || "", cols[0], y+4);
+    pdf.text((exp.description || "").slice(0, 22), cols[1], y+4);
+    pdf.text((CATEGORIES.find(c=>c.id===exp.category)?.label || "Other").slice(0,16), cols[2], y+4);
+    pdf.text((exp.customer || "—").slice(0, 16), cols[3], y+4);
+    pdf.text(fmt(exp.amount), cols[4], y+4);
+    const sc = STATUS_CONFIG[exp.status] || STATUS_CONFIG.pending;
+    const [sr, sg, sb] = hexToRgb(sc.color);
+    pdf.setTextColor(sr, sg, sb);
+    pdf.text(exp.status?.toUpperCase() || "", cols[5], y+4);
+    pdf.setTextColor(15, 23, 42);
+    y += 7;
+  });
+
+  // Total row
+  pdf.setDrawColor(229, 231, 235); pdf.setLineWidth(0.3);
+  pdf.line(M, y, W-M, y); y += 5;
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(9); pdf.setTextColor(15, 23, 42);
+  pdf.text("TOTAL SUBMITTED", cols[0], y+4);
+  pdf.text(fmt(totalExpenses), cols[4], y+4);
+  y += 12;
+
+  // Attachments section
+  const withAttach = filtered.filter(e => e.attachment);
+  if (withAttach.length > 0) {
+    pdf.addPage();
+    pdf.setFillColor(15, 23, 42);
+    pdf.rect(0, 0, W, 18, "F");
+    pdf.setTextColor(255,255,255); pdf.setFontSize(13); pdf.setFont("helvetica", "bold");
+    pdf.text("Bill Attachments", M, 12);
+
+    for (let i = 0; i < withAttach.length; i++) {
+      const exp = withAttach[i];
+      if (!exp.attachment || !exp.attachment.startsWith("data:image")) continue;
+
+      pdf.addPage();
+      // Page header
+      pdf.setFillColor(15, 23, 42);
+      pdf.rect(0, 0, W, 16, "F");
+      pdf.setTextColor(255,255,255); pdf.setFontSize(10); pdf.setFont("helvetica", "bold");
+      pdf.text(`Bill ${i+1} of ${withAttach.length}`, M, 11);
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(8);
+      pdf.text(`${exp.description} · ${exp.date} · ${fmt(exp.amount)}`, W - M, 11, { align: "right" });
+
+      // Bill info box
+      pdf.setFillColor(249, 250, 251);
+      pdf.setDrawColor(229, 231, 235);
+      pdf.roundedRect(M, 20, W-M*2, 22, 2, 2, "FD");
+      pdf.setTextColor(107, 114, 128); pdf.setFontSize(8); pdf.setFont("helvetica", "normal");
+      pdf.text(`Description: ${exp.description}`, M+4, 27);
+      pdf.text(`Date: ${exp.date}    Amount: ${fmt(exp.amount)}    Status: ${exp.status?.toUpperCase()}`, M+4, 33);
+      pdf.text(`Category: ${CATEGORIES.find(c=>c.id===exp.category)?.label || "Other"}    Customer: ${exp.customer || "—"}`, M+4, 39);
+
+      // Image
+      try {
+        const imgData = exp.attachment;
+        const imgProps = pdf.getImageProperties(imgData);
+        const maxW = W - M*2;
+        const maxH = 210;
+        let imgW = maxW, imgH = (imgProps.height / imgProps.width) * maxW;
+        if (imgH > maxH) { imgH = maxH; imgW = (imgProps.width / imgProps.height) * maxH; }
+        const imgX = M + (maxW - imgW) / 2;
+        pdf.addImage(imgData, "JPEG", imgX, 46, imgW, imgH);
+      } catch (e) {
+        pdf.setTextColor(107,114,128); pdf.setFontSize(10);
+        pdf.text("[Image could not be rendered]", W/2, 130, { align: "center" });
+      }
+    }
+  }
+
+  pdf.save(`expense-report-${engineer ? engineer.name.replace(/\s+/g,"_") : "all"}-${dateFrom||"all"}-to-${dateTo||"all"}.pdf`);
+}
+
+function hexToRgb(hex) {
+  const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return r ? [parseInt(r[1],16), parseInt(r[2],16), parseInt(r[3],16)] : [0,0,0];
+}
+
 // ─── COMPONENTS ───────────────────────────────────────────────────────────────
 function Avatar({ user, size = 36 }) {
   return (
@@ -86,7 +261,7 @@ function Avatar({ user, size = 36 }) {
       width: size, height: size, borderRadius: "50%", background: "linear-gradient(135deg, #1E40AF, #7C3AED)",
       display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700,
       fontSize: size * 0.35, fontFamily: "'DM Mono', monospace", flexShrink: 0,
-    }}>{user.avatar}</div>
+    }}>{user.avatar || initials(user.name)}</div>
   );
 }
 
@@ -118,6 +293,7 @@ function Button({ children, onClick, variant = "primary", disabled, style, small
     outline: { background: "#fff", color: "#1E40AF", border: "1.5px solid #1E40AF" },
     warning: { background: "linear-gradient(135deg,#92400E,#F59E0B)", color: "#fff" },
     teal: { background: "linear-gradient(135deg,#0F766E,#14B8A6)", color: "#fff" },
+    purple: { background: "linear-gradient(135deg,#5B21B6,#8B5CF6)", color: "#fff" },
   };
   return <button style={{ ...base, ...variants[variant] }} onClick={onClick} disabled={disabled}>{children}</button>;
 }
@@ -128,43 +304,80 @@ function Field({ label, children }) {
   return <div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#6B7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</label>{children}</div>;
 }
 
+// ─── CUSTOMER SEARCHABLE DROPDOWN ──────────────────────────────────────────────
+function CustomerDropdown({ value, onChange, customers }) {
+  const [search, setSearch] = useState(value || "");
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const filtered = customers.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    (c.code && c.code.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  const select = (c) => { onChange(c.name); setSearch(c.name); setOpen(false); };
+  const clear = () => { onChange(""); setSearch(""); };
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input
+          value={search}
+          onChange={e => { setSearch(e.target.value); onChange(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          placeholder="Search or type customer name..."
+          style={{ ...inputStyle, flex: 1 }}
+        />
+        {search && <button onClick={clear} style={{ background: "none", border: "none", color: "#9CA3AF", cursor: "pointer", fontSize: 16, padding: "0 6px" }}>✕</button>}
+      </div>
+      {open && filtered.length > 0 && (
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1.5px solid #E5E7EB", borderRadius: 10, zIndex: 500, maxHeight: 200, overflowY: "auto", boxShadow: "0 4px 16px rgba(0,0,0,0.12)", marginTop: 4 }}>
+          {filtered.map(c => (
+            <div key={c.id} onClick={() => select(c)} style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #F3F4F6", display: "flex", justifyContent: "space-between" }}
+              onMouseEnter={e => e.currentTarget.style.background = "#EFF6FF"}
+              onMouseLeave={e => e.currentTarget.style.background = ""}
+            >
+              <span style={{ fontWeight: 600, fontSize: 13 }}>{c.name}</span>
+              {c.code && <span style={{ fontSize: 11, color: "#9CA3AF" }}>{c.code}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+      {open && search && filtered.length === 0 && (
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1.5px solid #E5E7EB", borderRadius: 10, zIndex: 500, padding: "10px 14px", color: "#9CA3AF", fontSize: 13, marginTop: 4 }}>
+          No match — "{search}" will be used as-is
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── DATE RANGE FILTER UI ─────────────────────────────────────────────────────
-// allMonths: sorted array of "YYYY-MM" strings from all data
 function DateRangeFilter({ filter, onChange, allMonths }) {
   return (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-      <select
-        value={filter.mode}
-        onChange={e => onChange({ mode: e.target.value, month: filter.month, from: filter.from, to: filter.to })}
-        style={{ ...inputStyle, width: "auto", padding: "8px 14px", fontWeight: 600 }}
-      >
+      <select value={filter.mode} onChange={e => onChange({ mode: e.target.value, month: filter.month, from: filter.from, to: filter.to })} style={{ ...inputStyle, width: "auto", padding: "8px 14px", fontWeight: 600 }}>
         <option value="all">All Time</option>
         <option value="month">By Month</option>
         <option value="custom">Custom Range</option>
       </select>
-
       {filter.mode === "month" && (
-        <select
-          value={filter.month}
-          onChange={e => onChange({ ...filter, month: e.target.value })}
-          style={{ ...inputStyle, width: "auto", padding: "8px 14px" }}
-        >
-          {allMonths.map(m => (
-            <option key={m} value={m}>{new Date(m + "-01").toLocaleString("en-IN", { month: "long", year: "numeric" })}</option>
-          ))}
-          {!allMonths.includes(filter.month) && filter.month && (
-            <option value={filter.month}>{new Date(filter.month + "-01").toLocaleString("en-IN", { month: "long", year: "numeric" })}</option>
-          )}
+        <select value={filter.month} onChange={e => onChange({ ...filter, month: e.target.value })} style={{ ...inputStyle, width: "auto", padding: "8px 14px" }}>
+          {allMonths.map(m => <option key={m} value={m}>{new Date(m + "-01").toLocaleString("en-IN", { month: "long", year: "numeric" })}</option>)}
+          {!allMonths.includes(filter.month) && filter.month && <option value={filter.month}>{new Date(filter.month + "-01").toLocaleString("en-IN", { month: "long", year: "numeric" })}</option>}
         </select>
       )}
-
       {filter.mode === "custom" && (
         <>
-          <input type="date" value={filter.from} onChange={e => onChange({ ...filter, from: e.target.value })}
-            style={{ ...inputStyle, width: "auto", padding: "8px 12px" }} />
+          <input type="date" value={filter.from} onChange={e => onChange({ ...filter, from: e.target.value })} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }} />
           <span style={{ color: "#6B7280", fontSize: 13 }}>to</span>
-          <input type="date" value={filter.to} onChange={e => onChange({ ...filter, to: e.target.value })}
-            style={{ ...inputStyle, width: "auto", padding: "8px 12px" }} />
+          <input type="date" value={filter.to} onChange={e => onChange({ ...filter, to: e.target.value })} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }} />
         </>
       )}
     </div>
@@ -172,12 +385,13 @@ function DateRangeFilter({ filter, onChange, allMonths }) {
 }
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
-function Login({ onLogin }) {
+function Login({ onLogin, users }) {
   const [id, setId] = useState("");
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
+  const allUsers = users.length > 0 ? users : DEFAULT_USERS;
   const handle = () => {
-    const u = USERS.find(u => u.id === id && u.password === pw);
+    const u = allUsers.find(u => u.id === id && u.password === pw);
     if (u) onLogin(u); else setErr("Invalid credentials. Try again.");
   };
   return (
@@ -187,12 +401,305 @@ function Login({ onLogin }) {
         <h1 style={{ color: "#fff", fontSize: 28, fontWeight: 800, margin: "0 0 4px" }}>FieldExpense Pro</h1>
         <p style={{ color: "#94A3B8", fontSize: 14, margin: "0 0 32px" }}>Field Engineer Expense Management</p>
         <Card>
-          <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#6B7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>User ID</label><select value={id} onChange={e => setId(e.target.value)} style={inputStyle}><option value="">Select user...</option>{USERS.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}</select></div>
-          <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#6B7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Password</label><input type="password" value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === "Enter" && handle()} placeholder="Enter password" style={inputStyle} /></div>
+          <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#6B7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>User ID</label>
+            <select value={id} onChange={e => setId(e.target.value)} style={inputStyle}>
+              <option value="">Select user...</option>
+              {allUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#6B7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Password</label>
+            <input type="password" value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === "Enter" && handle()} placeholder="Enter password" style={inputStyle} />
+          </div>
           {err && <p style={{ color: "#EF4444", fontSize: 13, margin: "0 0 12px" }}>{err}</p>}
           <Button onClick={handle} style={{ width: "100%" }} disabled={!id || !pw}>Sign In →</Button>
         </Card>
       </div>
+    </div>
+  );
+}
+
+// ─── ADMIN DATABASE PANEL ─────────────────────────────────────────────────────
+function AdminDatabase({ users, customers, onSaveUser, onDeleteUser, onSaveCustomer, onDeleteCustomer }) {
+  const [activeTab, setActiveTab] = useState("engineers");
+
+  // Engineer management
+  const [showEngForm, setShowEngForm] = useState(false);
+  const [editEng, setEditEng] = useState(null);
+
+  // Customer management
+  const [showCustForm, setShowCustForm] = useState(false);
+  const [editCust, setEditCust] = useState(null);
+  const [custSearch, setCustSearch] = useState("");
+
+  const engineers = users.filter(u => u.role === "engineer");
+  const filteredCustomers = customers.filter(c =>
+    c.name.toLowerCase().includes(custSearch.toLowerCase()) ||
+    (c.code && c.code.toLowerCase().includes(custSearch.toLowerCase()))
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800 }}>🗄️ Database Management</h2>
+          <p style={{ margin: 0, fontSize: 13, color: "#6B7280" }}>Manage engineers, login credentials and customer list</p>
+        </div>
+      </div>
+
+      {/* Sub-tabs */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        {[{ id: "engineers", label: "👷 Engineers", count: engineers.length }, { id: "customers", label: "👥 Customers", count: customers.length }].map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            padding: "8px 18px", borderRadius: 10, border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 13,
+            background: activeTab === t.id ? "linear-gradient(135deg,#1E40AF,#3B82F6)" : "#F3F4F6",
+            color: activeTab === t.id ? "#fff" : "#374151"
+          }}>{t.label} <span style={{ opacity: 0.7, fontSize: 11 }}>({t.count})</span></button>
+        ))}
+      </div>
+
+      {/* ENGINEERS TAB */}
+      {activeTab === "engineers" && (
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <Button onClick={() => { setEditEng(null); setShowEngForm(true); }}>+ Add Engineer</Button>
+          </div>
+          <Card>
+            {engineers.length === 0 && <div style={{ textAlign: "center", padding: "40px 0", color: "#9CA3AF" }}>No engineers yet. Add one above.</div>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {engineers.map(eng => (
+                <div key={eng.id} style={{ padding: "14px 16px", background: "#FAFAFA", borderRadius: 12, border: "1px solid #F3F4F6", display: "flex", alignItems: "center", gap: 14 }}>
+                  <Avatar user={eng} size={40} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{eng.name}</div>
+                    <div style={{ fontSize: 12, color: "#9CA3AF" }}>{eng.department || "—"} · ID: {eng.id}</div>
+                    <div style={{ fontSize: 12, color: "#9CA3AF" }}>Password: {"•".repeat(eng.password?.length || 6)}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <Button small variant="outline" onClick={() => { setEditEng(eng); setShowEngForm(true); }}>✏️ Edit</Button>
+                    <Button small variant="danger" onClick={() => onDeleteUser(eng.id)}>🗑️</Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </>
+      )}
+
+      {/* CUSTOMERS TAB */}
+      {activeTab === "customers" && (
+        <>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 12, flexWrap: "wrap" }}>
+            <input value={custSearch} onChange={e => setCustSearch(e.target.value)} placeholder="🔍 Search customers..." style={{ ...inputStyle, maxWidth: 300 }} />
+            <Button onClick={() => { setEditCust(null); setShowCustForm(true); }}>+ Add Customer</Button>
+          </div>
+          <Card>
+            {filteredCustomers.length === 0 && <div style={{ textAlign: "center", padding: "40px 0", color: "#9CA3AF" }}>No customers found.</div>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {filteredCustomers.map(c => (
+                <div key={c.id} style={{ padding: "12px 16px", background: "#FAFAFA", borderRadius: 10, border: "1px solid #F3F4F6", display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#7C3AED,#5B21B6)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+                    {c.name[0].toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div>
+                    <div style={{ fontSize: 12, color: "#9CA3AF" }}>{c.code ? `Code: ${c.code}` : ""}{c.location ? ` · ${c.location}` : ""}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <Button small variant="outline" onClick={() => { setEditCust(c); setShowCustForm(true); }}>✏️ Edit</Button>
+                    <Button small variant="danger" onClick={() => onDeleteCustomer(c.id)}>🗑️</Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </>
+      )}
+
+      {/* Engineer Form Modal */}
+      {showEngForm && <EngineerFormModal editItem={editEng} onSave={onSaveUser} onClose={() => { setShowEngForm(false); setEditEng(null); }} existingIds={users.map(u => u.id)} />}
+
+      {/* Customer Form Modal */}
+      {showCustForm && <CustomerFormModal editItem={editCust} onSave={onSaveCustomer} onClose={() => { setShowCustForm(false); setEditCust(null); }} />}
+    </div>
+  );
+}
+
+// ─── ENGINEER FORM MODAL ──────────────────────────────────────────────────────
+function EngineerFormModal({ editItem, onSave, onClose, existingIds }) {
+  const [name, setName] = useState(editItem?.name || "");
+  const [department, setDepartment] = useState(editItem?.department || "");
+  const [password, setPassword] = useState(editItem?.password || "");
+  const [showPw, setShowPw] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = () => {
+    if (!name.trim() || !password.trim()) { setErr("Name and password are required."); return; }
+    const id = editItem?.id || "eng_" + uid();
+    onSave({
+      id, name: name.trim(), department: department.trim(),
+      password: password.trim(), role: "engineer",
+      avatar: initials(name.trim()),
+    });
+    onClose();
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
+      <Card style={{ width: "100%", maxWidth: 440 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>👷 {editItem ? "Edit Engineer" : "Add Engineer"}</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
+        </div>
+        <Field label="Full Name">
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Arjun Menon" style={inputStyle} />
+        </Field>
+        <Field label="Department / Region">
+          <input value={department} onChange={e => setDepartment(e.target.value)} placeholder="e.g. South Kerala" style={inputStyle} />
+        </Field>
+        <Field label="Password">
+          <div style={{ display: "flex", gap: 6 }}>
+            <input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="Set login password" style={{ ...inputStyle, flex: 1 }} />
+            <button onClick={() => setShowPw(!showPw)} style={{ background: "#F3F4F6", border: "none", borderRadius: 8, padding: "0 10px", cursor: "pointer", fontSize: 16 }}>{showPw ? "🙈" : "👁️"}</button>
+          </div>
+        </Field>
+        {editItem && <div style={{ background: "#FEF3C7", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#92400E", marginBottom: 12 }}>⚠️ Engineer ID cannot be changed: <strong>{editItem.id}</strong></div>}
+        {err && <p style={{ color: "#EF4444", fontSize: 13, margin: "0 0 12px" }}>{err}</p>}
+        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
+          <Button onClick={submit} disabled={!name || !password} style={{ flex: 1 }}>{editItem ? "Update" : "Add Engineer"}</Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ─── CUSTOMER FORM MODAL ──────────────────────────────────────────────────────
+function CustomerFormModal({ editItem, onSave, onClose }) {
+  const [name, setName] = useState(editItem?.name || "");
+  const [code, setCode] = useState(editItem?.code || "");
+  const [location, setLocation] = useState(editItem?.location || "");
+  const [contact, setContact] = useState(editItem?.contact || "");
+
+  const submit = () => {
+    if (!name.trim()) return;
+    onSave({ id: editItem?.id || "cust_" + uid(), name: name.trim(), code: code.trim(), location: location.trim(), contact: contact.trim() });
+    onClose();
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
+      <Card style={{ width: "100%", maxWidth: 420 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>👥 {editItem ? "Edit Customer" : "Add Customer"}</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
+        </div>
+        <Field label="Customer Name *">
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. BSNL Kochi" style={inputStyle} />
+        </Field>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Customer Code">
+            <input value={code} onChange={e => setCode(e.target.value)} placeholder="e.g. BSN-001" style={inputStyle} />
+          </Field>
+          <Field label="Location">
+            <input value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Ernakulam" style={inputStyle} />
+          </Field>
+        </div>
+        <Field label="Contact / Notes">
+          <input value={contact} onChange={e => setContact(e.target.value)} placeholder="Contact person or notes" style={inputStyle} />
+        </Field>
+        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
+          <Button onClick={submit} disabled={!name} style={{ flex: 1 }}>{editItem ? "Update" : "Add Customer"}</Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ─── EXPENSE REPORT MODAL ─────────────────────────────────────────────────────
+function ExpenseReportModal({ engineers, expenses, receivedFunds, requests, onClose }) {
+  const [selEng, setSelEng] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const engineer = engineers.find(e => e.id === selEng) || null;
+
+  // Preview stats
+  const filtered = expenses.filter(e => {
+    if (selEng && e.engineerId !== selEng) return false;
+    if (dateFrom && e.date < dateFrom) return false;
+    if (dateTo && e.date > dateTo) return false;
+    return true;
+  });
+  const filteredFunds = receivedFunds.filter(f => {
+    if (dateFrom && f.date < dateFrom) return false;
+    if (dateTo && f.date > dateTo) return false;
+    return true;
+  });
+  const totalReceived = filteredFunds.reduce((s, f) => s + f.amount, 0);
+  const totalExp = filtered.reduce((s, e) => s + e.amount, 0);
+  const approvedExp = filtered.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
+
+  const download = async () => {
+    setLoading(true);
+    try {
+      await generateExpenseReportPDF({ engineer, expenses, receivedFunds, requests, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined });
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
+      <Card style={{ width: "100%", maxWidth: 500 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📥 Download Expense Report</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
+        </div>
+        <Field label="Select Engineer">
+          <select value={selEng} onChange={e => setSelEng(e.target.value)} style={inputStyle}>
+            <option value="">All Engineers</option>
+            {engineers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        </Field>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Date From">
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={inputStyle} />
+          </Field>
+          <Field label="Date To">
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={inputStyle} />
+          </Field>
+        </div>
+
+        {/* Preview */}
+        <div style={{ background: "#F9FAFB", borderRadius: 12, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", marginBottom: 10 }}>Report Preview</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {[
+              ["Engineer", engineer?.name || "All Engineers"],
+              ["Expenses in range", filtered.length + " entries"],
+              ["Total Received", fmt(totalReceived)],
+              ["Total Expenses", fmt(totalExp)],
+              ["Approved Expenses", fmt(approvedExp)],
+              ["Balance", fmt(totalReceived - approvedExp)],
+            ].map(([k, v]) => (
+              <div key={k} style={{ fontSize: 12 }}>
+                <span style={{ color: "#9CA3AF" }}>{k}: </span>
+                <span style={{ fontWeight: 600, color: "#111827" }}>{v}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: "#9CA3AF" }}>
+            📎 {filtered.filter(e => e.attachment).length} bill attachment(s) will be included
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
+          <Button onClick={download} disabled={loading} variant="success" style={{ flex: 1 }}>
+            {loading ? "⏳ Generating..." : "📥 Download PDF"}
+          </Button>
+        </div>
+      </Card>
     </div>
   );
 }
@@ -208,12 +715,7 @@ function ReceivedFundModal({ onSave, onClose, editItem }) {
 
   const submit = () => {
     if (!amount || !date || !purpose) return;
-    onSave({
-      id: editItem?.id || uid(),
-      amount: parseFloat(amount),
-      date, purpose, pfrNo, source, remarks,
-      createdAt: editItem?.createdAt || today(),
-    });
+    onSave({ id: editItem?.id || uid(), amount: parseFloat(amount), date, purpose, pfrNo, source, remarks, createdAt: editItem?.createdAt || today() });
     onClose();
   };
 
@@ -225,27 +727,15 @@ function ReceivedFundModal({ onSave, onClose, editItem }) {
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Amount Received (₹)">
-            <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" style={inputStyle} />
-          </Field>
-          <Field label="Received Date">
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
-          </Field>
+          <Field label="Amount Received (₹)"><input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" style={inputStyle} /></Field>
+          <Field label="Received Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} /></Field>
         </div>
-        <Field label="Purpose">
-          <input value={purpose} onChange={e => setPurpose(e.target.value)} placeholder="Purpose of this fund" style={inputStyle} />
-        </Field>
+        <Field label="Purpose"><input value={purpose} onChange={e => setPurpose(e.target.value)} placeholder="Purpose of this fund" style={inputStyle} /></Field>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="PFR No.">
-            <input value={pfrNo} onChange={e => setPfrNo(e.target.value)} placeholder="PFR number" style={inputStyle} />
-          </Field>
-          <Field label="Source / From">
-            <input value={source} onChange={e => setSource(e.target.value)} placeholder="Fund source" style={inputStyle} />
-          </Field>
+          <Field label="PFR No."><input value={pfrNo} onChange={e => setPfrNo(e.target.value)} placeholder="PFR number" style={inputStyle} /></Field>
+          <Field label="Source / From"><input value={source} onChange={e => setSource(e.target.value)} placeholder="Fund source" style={inputStyle} /></Field>
         </div>
-        <Field label="Remarks (optional)">
-          <textarea value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="Any additional notes..." rows={2} style={{ ...inputStyle, resize: "vertical" }} />
-        </Field>
+        <Field label="Remarks (optional)"><textarea value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="Any additional notes..." rows={2} style={{ ...inputStyle, resize: "vertical" }} /></Field>
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
           <Button onClick={submit} disabled={!amount || !date || !purpose} style={{ flex: 1 }}>{editItem ? "Update" : "Add Fund"}</Button>
@@ -267,6 +757,7 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject }) {
         <div style={{ background: "#F9FAFB", padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 13, color: "#4B5563" }}>
           <strong>Engineer:</strong> {item.engineerName}<br />
           <strong>Reason:</strong> {item.reason || item.description}<br />
+          {item.customer && <><strong>Customer:</strong> {item.customer}<br /></>}
           <strong>Date:</strong> {item.date}<br />
           <strong>Original Amount:</strong> <span style={{ color: "#1E40AF", fontWeight: 700 }}>{fmt(item.amount)}</span>
         </div>
@@ -293,36 +784,57 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject }) {
 }
 
 // ─── FUND REQUEST FORM ────────────────────────────────────────────────────────
-function FundRequestForm({ user, onSubmit, onClose }) {
+function FundRequestForm({ user, onSubmit, onClose, customers }) {
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [category, setCategory] = useState("travel");
+  const [customer, setCustomer] = useState("");
+
   const submit = () => {
     if (!amount || !reason) return;
-    onSubmit({ id: uid(), engineerId: user.id, engineerName: user.name, amount: parseFloat(amount), reason, category, status: "pending", date: today(), type: "fund_request" });
+    onSubmit({ id: uid(), engineerId: user.id, engineerName: user.name, amount: parseFloat(amount), reason, category, customer, status: "pending", date: today(), type: "fund_request" });
     onClose();
   };
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
       <Card style={{ width: "100%", maxWidth: 460 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>💰 Request Funds</h3><button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button></div>
-        <Field label="Category"><select value={category} onChange={e => setCategory(e.target.value)} style={inputStyle}>{CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}</select></Field>
-        <Field label="Amount Requested (₹)"><input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" style={inputStyle} /></Field>
-        <Field label="Reason / Description"><textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Describe why you need these funds..." rows={3} style={{ ...inputStyle, resize: "vertical" }} /></Field>
-        <div style={{ display: "flex", gap: 10, marginTop: 8 }}><Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button><Button onClick={submit} disabled={!amount || !reason} style={{ flex: 1 }}>Submit Request</Button></div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>💰 Request Funds</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
+        </div>
+        <Field label="Category">
+          <select value={category} onChange={e => setCategory(e.target.value)} style={inputStyle}>
+            {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Customer (optional)">
+          <CustomerDropdown value={customer} onChange={setCustomer} customers={customers} />
+        </Field>
+        <Field label="Amount Requested (₹)">
+          <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" style={inputStyle} />
+        </Field>
+        <Field label="Reason / Description">
+          <textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Describe why you need these funds..." rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+        </Field>
+        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
+          <Button onClick={submit} disabled={!amount || !reason} style={{ flex: 1 }}>Submit Request</Button>
+        </div>
       </Card>
     </div>
   );
 }
 
 // ─── EXPENSE FORM ─────────────────────────────────────────────────────────────
-function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem }) {
+function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, customers }) {
   const [amount, setAmount] = useState(editItem?.amount || "");
   const [category, setCategory] = useState(editItem?.category || "travel");
   const [description, setDescription] = useState(editItem?.description || "");
   const [date, setDate] = useState(editItem?.date || today());
   const [attachment, setAttachment] = useState(editItem?.attachment || null);
   const [attachName, setAttachName] = useState(editItem?.attachName || "");
+  const [customer, setCustomer] = useState(editItem?.customer || "");
   const fileRef = useRef();
 
   const handleFile = async (file) => {
@@ -342,7 +854,7 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem }) {
     onSubmit({
       id: editItem?.id || uid(), engineerId: user.id, engineerName: user.name,
       amount: parseFloat(amount), category, description, date, attachment, attachName,
-      type: "expense", status: "pending", editLog: editItem?.editLog || [],
+      customer, type: "expense", status: "pending", editLog: editItem?.editLog || [],
     });
     onClose();
   };
@@ -352,13 +864,41 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16, overflowY: "auto" }}>
       <Card style={{ width: "100%", maxWidth: 500, margin: "auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{editItem ? "✏️ Edit Expense" : "🧾 Add Expense"}</h3><button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button></div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{editItem ? "✏️ Edit Expense" : "🧾 Add Expense"}</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
+        </div>
         <div style={{ background: "#EFF6FF", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13 }}>Available Balance: <strong style={{ color: "#1E40AF" }}>{fmt(availableBalance)}</strong></div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><Field label="Category"><select value={category} onChange={e => setCategory(e.target.value)} style={inputStyle}>{CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}</select></Field><Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} /></Field></div>
-        <Field label="Amount (₹)"><input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" style={{ ...inputStyle, borderColor: over ? "#EF4444" : undefined }} />{over && <span style={{ color: "#EF4444", fontSize: 12 }}>⚠ Exceeds available balance</span>}</Field>
-        <Field label="Description"><input value={description} onChange={e => setDescription(e.target.value)} placeholder="What was this expense for?" style={inputStyle} /></Field>
-        <Field label="Attachment (Camera/Bill)"><div onClick={() => fileRef.current.click()} style={{ border: `2px dashed ${attachment ? "#10B981" : "#D1D5DB"}`, borderRadius: 10, padding: "16px", textAlign: "center", cursor: "pointer", background: attachment ? "#F0FDF4" : "#F9FAFB" }}>{attachment ? <><span style={{ fontSize: 22 }}>✅</span><br /><span style={{ fontSize: 13, color: "#065F46", fontWeight: 600 }}>{attachName}</span></> : <><span style={{ fontSize: 22 }}>📷</span><br /><span style={{ fontSize: 13, color: "#6B7280" }}>Tap to take photo or upload bill</span></>}</div><input ref={fileRef} type="file" accept="image/*,.pdf" capture="environment" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} /></Field>
-        <div style={{ display: "flex", gap: 10, marginTop: 8 }}><Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button><Button onClick={submit} disabled={!amount || !description || !attachment || over} style={{ flex: 1 }}>{editItem ? "Update Expense" : "Submit Expense"}</Button></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Category">
+            <select value={category} onChange={e => setCategory(e.target.value)} style={inputStyle}>
+              {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Date">
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
+          </Field>
+        </div>
+        <Field label="Customer (optional)">
+          <CustomerDropdown value={customer} onChange={setCustomer} customers={customers} />
+        </Field>
+        <Field label="Amount (₹)">
+          <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" style={{ ...inputStyle, borderColor: over ? "#EF4444" : undefined }} />
+          {over && <span style={{ color: "#EF4444", fontSize: 12 }}>⚠ Exceeds available balance</span>}
+        </Field>
+        <Field label="Description">
+          <input value={description} onChange={e => setDescription(e.target.value)} placeholder="What was this expense for?" style={inputStyle} />
+        </Field>
+        <Field label="Attachment (Camera/Bill)">
+          <div onClick={() => fileRef.current.click()} style={{ border: `2px dashed ${attachment ? "#10B981" : "#D1D5DB"}`, borderRadius: 10, padding: "16px", textAlign: "center", cursor: "pointer", background: attachment ? "#F0FDF4" : "#F9FAFB" }}>
+            {attachment ? <><span style={{ fontSize: 22 }}>✅</span><br /><span style={{ fontSize: 13, color: "#065F46", fontWeight: 600 }}>{attachName}</span></> : <><span style={{ fontSize: 22 }}>📷</span><br /><span style={{ fontSize: 13, color: "#6B7280" }}>Tap to take photo or upload bill</span></>}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*,.pdf" capture="environment" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
+        </Field>
+        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
+          <Button onClick={submit} disabled={!amount || !description || !attachment || over} style={{ flex: 1 }}>{editItem ? "Update Expense" : "Submit Expense"}</Button>
+        </div>
       </Card>
     </div>
   );
@@ -410,7 +950,11 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
                   <Badge status={exp.status} />
                   {hasEditLog && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>EDITED</span>}
                 </div>
-                <div style={{ fontSize: 12, color: "#9CA3AF" }}>{c.label} · {exp.date}{isAdmin && <> · <span style={{ color: "#6B7280" }}>{exp.engineerName}</span></>}</div>
+                <div style={{ fontSize: 12, color: "#9CA3AF" }}>
+                  {c.label} · {exp.date}
+                  {exp.customer && <> · <span style={{ color: "#7C3AED", fontWeight: 600 }}>👥 {exp.customer}</span></>}
+                  {isAdmin && <> · <span style={{ color: "#6B7280" }}>{exp.engineerName}</span></>}
+                </div>
               </div>
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: "#EF4444" }}>-{fmt(exp.amount)}</div>
@@ -471,6 +1015,7 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
                   {hasEditLog && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>EDITED</span>}
                 </div>
                 <div style={{ fontSize: 13, color: "#6B7280" }}>{req.reason}</div>
+                {req.customer && <div style={{ fontSize: 12, color: "#7C3AED", fontWeight: 600, marginTop: 2 }}>👥 {req.customer}</div>}
                 {isAdmin && <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>By: {req.engineerName} · {req.date}</div>}
               </div>
               <div style={{ flexShrink: 0, display: "flex", gap: 6 }}>
@@ -531,56 +1076,34 @@ function ReceivedFundList({ funds, onEdit, onDelete, filter }) {
 }
 
 // ─── ADMIN DASHBOARD SUMMARY ──────────────────────────────────────────────────
-function AdminSummary({ expenses, requests, receivedFunds, dashFilter }) {
-  const engineers = USERS.filter(u => u.role === "engineer");
-
+function AdminSummary({ expenses, requests, receivedFunds, dashFilter, engineers }) {
   const mReqs = requests.filter(r => inRange(r.date, dashFilter));
   const mExps = expenses.filter(e => inRange(e.date, dashFilter));
   const mFunds = receivedFunds.filter(f => inRange(f.date, dashFilter));
 
-  // Total received in period
   const totalReceived = mFunds.reduce((s, f) => s + f.amount, 0);
-  // Total distributed (approved fund requests) in period
   const totalDisbursed = mReqs.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
-  // Total submitted bills = sum of APPROVED expense amounts only (post-approval figures)
   const totalSubmittedBills = mExps.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
-  // Pending bills = distributed − submitted (approved) bills
   const unsubmitted = totalDisbursed - totalSubmittedBills;
-  // Remaining received = total received − total distributed
   const remainingReceived = totalReceived - totalDisbursed;
 
   return (
     <>
-      {/* Fund overview banner */}
       <Card style={{ marginBottom: 20, background: "linear-gradient(135deg,#0F172A,#1E1B4B)", border: "none" }}>
         <div style={{ display: "flex", justifyContent: "space-around", alignItems: "center", flexWrap: "wrap", gap: 16, marginBottom: totalReceived > 0 ? 16 : 0 }}>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Received Fund</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: "#34D399" }}>{fmt(totalReceived)}</div>
-          </div>
-          <div style={{ color: "#334155", fontSize: 20 }}>→</div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Distributed</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: "#F59E0B" }}>{fmt(totalDisbursed)}</div>
-          </div>
-          <div style={{ color: "#334155", fontSize: 20 }}>→</div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Total Submitted Bills</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: "#EF4444" }}>{fmt(totalSubmittedBills)}</div>
-            <div style={{ fontSize: 10, color: "#64748B" }}>approved bills sum</div>
-          </div>
-          <div style={{ color: "#334155", fontSize: 20 }}>│</div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Pending Bills</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: unsubmitted < 0 ? "#EF4444" : "#FBBF24" }}>{fmt(Math.max(0, unsubmitted))}</div>
-            <div style={{ fontSize: 10, color: "#64748B" }}>distributed − submitted</div>
-          </div>
-          <div style={{ color: "#334155", fontSize: 20 }}>│</div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Fund Balance</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: remainingReceived < 0 ? "#EF4444" : "#60A5FA" }}>{fmt(remainingReceived)}</div>
-            <div style={{ fontSize: 10, color: "#64748B" }}>received − distributed</div>
-          </div>
+          {[
+            { label: "Received Fund", value: fmt(totalReceived), color: "#34D399" },
+            { label: "Distributed", value: fmt(totalDisbursed), color: "#F59E0B" },
+            { label: "Total Submitted Bills", value: fmt(totalSubmittedBills), color: "#EF4444", sub: "approved bills sum" },
+            { label: "Pending Bills", value: fmt(Math.max(0, unsubmitted)), color: unsubmitted < 0 ? "#EF4444" : "#FBBF24", sub: "distributed − submitted" },
+            { label: "Fund Balance", value: fmt(remainingReceived), color: remainingReceived < 0 ? "#EF4444" : "#60A5FA", sub: "received − distributed" },
+          ].map((item, i) => (
+            <div key={i} style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{item.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: item.color }}>{item.value}</div>
+              {item.sub && <div style={{ fontSize: 10, color: "#64748B" }}>{item.sub}</div>}
+            </div>
+          ))}
         </div>
         {totalReceived > 0 && (
           <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 8, height: 8, overflow: "hidden" }}>
@@ -589,7 +1112,6 @@ function AdminSummary({ expenses, requests, receivedFunds, dashFilter }) {
         )}
       </Card>
 
-      {/* Per-engineer breakdown */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14, marginBottom: 24 }}>
         {engineers.map(eng => {
           const engReqs = mReqs.filter(r => r.engineerId === eng.id);
@@ -627,48 +1149,61 @@ export default function App() {
   const [expenses, setExpenses] = useState([]);
   const [requests, setRequests] = useState([]);
   const [receivedFunds, setReceivedFunds] = useState([]);
+  const [dbUsers, setDbUsers] = useState([]);
+  const [customers, setCustomers] = useState([]);
 
   const [tab, setTab] = useState("dashboard");
   const [showFundForm, setShowFundForm] = useState(false);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [showReceivedFundModal, setShowReceivedFundModal] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
   const [editReceivedFund, setEditReceivedFund] = useState(null);
-
   const [editExpense, setEditExpense] = useState(null);
   const [reviewItem, setReviewItem] = useState(null);
   const [viewAttachment, setViewAttachment] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
   const [deleteItemType, setDeleteItemType] = useState("expense");
 
-  // Dashboard date filter (admin)
   const [dashFilter, setDashFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
-
-  // Tabs filter (requests/expenses)
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterEngineer, setFilterEngineer] = useState("");
   const [tabDateFilter, setTabDateFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
-
-  // Received funds tab filter
   const [rfDateFilter, setRfDateFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
 
   useEffect(() => {
-    const unsubExp = onSnapshot(collection(db, "expenses"), snap => setExpenses(snap.docs.map(d => d.data())));
-    const unsubReq = onSnapshot(collection(db, "requests"), snap => setRequests(snap.docs.map(d => d.data())));
-    const unsubRF = onSnapshot(collection(db, "receivedFunds"), snap => setReceivedFunds(snap.docs.map(d => d.data())));
-    return () => { unsubExp(); unsubReq(); unsubRF(); };
+    const unsubs = [
+      onSnapshot(collection(db, "expenses"), snap => setExpenses(snap.docs.map(d => d.data()))),
+      onSnapshot(collection(db, "requests"), snap => setRequests(snap.docs.map(d => d.data()))),
+      onSnapshot(collection(db, "receivedFunds"), snap => setReceivedFunds(snap.docs.map(d => d.data()))),
+      onSnapshot(collection(db, "users"), snap => {
+        const u = snap.docs.map(d => d.data());
+        setDbUsers(u.length > 0 ? u : DEFAULT_USERS);
+      }),
+      onSnapshot(collection(db, "customers"), snap => setCustomers(snap.docs.map(d => d.data()))),
+    ];
+    return () => unsubs.forEach(u => u());
   }, []);
 
-  if (!user) return <Login onLogin={handleLogin} />;
+  // Seed default users to Firestore if none exist
+  useEffect(() => {
+    if (dbUsers.length === 0) {
+      DEFAULT_USERS.forEach(u => setDoc(doc(db, "users", u.id), u));
+    }
+  }, [dbUsers]);
+
+  // All active users (from DB or default)
+  const allUsers = dbUsers.length > 0 ? dbUsers : DEFAULT_USERS;
+  const engineers = allUsers.filter(u => u.role === "engineer");
+
+  if (!user) return <Login onLogin={handleLogin} users={allUsers} />;
 
   const isAdmin = user.role === "admin";
   const myRequests = requests.filter(r => r.engineerId === user.id);
   const myExpenses = expenses.filter(e => e.engineerId === user.id);
-
   const approvedFunds = myRequests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
   const approvedExpenses = myExpenses.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
   const availableBalance = approvedFunds - approvedExpenses;
 
-  // All months from all data for dropdowns
   const allMonths = Array.from(new Set([
     ...expenses.map(e => monthOf(e.date)),
     ...requests.map(r => monthOf(r.date)),
@@ -678,11 +1213,16 @@ export default function App() {
   // Firebase writes
   const addRequest = async (req) => await setDoc(doc(db, "requests", req.id), req);
   const addExpense = async (exp) => await setDoc(doc(db, "expenses", exp.id), exp);
-
-  const saveReceivedFund = async (fund) => {
-    await setDoc(doc(db, "receivedFunds", fund.id), fund);
-  };
+  const saveReceivedFund = async (fund) => await setDoc(doc(db, "receivedFunds", fund.id), fund);
   const deleteReceivedFund = async (id) => await deleteDoc(doc(db, "receivedFunds", id));
+
+  // User (engineer) management
+  const saveUser = async (u) => await setDoc(doc(db, "users", u.id), u);
+  const deleteUser = async (id) => await deleteDoc(doc(db, "users", id));
+
+  // Customer management
+  const saveCustomer = async (c) => await setDoc(doc(db, "customers", c.id), c);
+  const deleteCustomer = async (id) => await deleteDoc(doc(db, "customers", id));
 
   const approveItem = async (col, id, finalAmount, comment, originalAmount) => {
     const updates = { status: "approved", amount: finalAmount };
@@ -717,6 +1257,7 @@ export default function App() {
     { id: "received", label: "Received Funds", icon: "💵" },
     { id: "requests", label: `Requests${pendingReqCount ? ` (${pendingReqCount})` : ""}`, icon: "📋" },
     { id: "expenses", label: `Expenses${pendingExpCount ? ` (${pendingExpCount})` : ""}`, icon: "🧾" },
+    { id: "database", label: "Database", icon: "🗄️" },
   ];
   const engTabs = [
     { id: "dashboard", label: "Dashboard", icon: "📊" },
@@ -727,8 +1268,16 @@ export default function App() {
 
   const tabFilterUI = (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
-      {isAdmin && <select value={filterEngineer} onChange={e => setFilterEngineer(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}><option value="">All Engineers</option>{USERS.filter(u => u.role === "engineer").map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select>}
-      <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}><option value="all">All Statuses</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
+      {isAdmin && <select value={filterEngineer} onChange={e => setFilterEngineer(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}>
+        <option value="">All Engineers</option>
+        {engineers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+      </select>}
+      <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}>
+        <option value="all">All Statuses</option>
+        <option value="pending">Pending</option>
+        <option value="approved">Approved</option>
+        <option value="rejected">Rejected</option>
+      </select>
       <DateRangeFilter filter={tabDateFilter} onChange={setTabDateFilter} allMonths={allMonths} />
     </div>
   );
@@ -738,11 +1287,16 @@ export default function App() {
       {/* NAV */}
       <div style={{ background: "#0F172A", padding: "0 24px", position: "sticky", top: 0, zIndex: 100, overflowX: "auto" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", gap: 20, height: 58, minWidth: 600 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}><div style={{ fontSize: 22 }}>⚡</div><span style={{ color: "#fff", fontWeight: 800, fontSize: 16 }}>FieldExpense</span></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <div style={{ fontSize: 22 }}>⚡</div>
+            <span style={{ color: "#fff", fontWeight: 800, fontSize: 16 }}>FieldExpense</span>
+          </div>
           <div style={{ display: "flex", gap: 2, flex: 1 }}>
             {tabs.map(t => (
               <button key={t.id} onClick={() => { setTab(t.id); setFilterStatus("all"); setFilterEngineer(""); setTabDateFilter({ mode: "all", month: monthOf(today()), from: today(), to: today() }); }}
-                style={{ background: tab === t.id ? "rgba(59,130,246,0.2)" : "none", border: "none", borderRadius: 8, padding: "6px 12px", color: tab === t.id ? "#60A5FA" : "#94A3B8", cursor: "pointer", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>{t.icon} {t.label}</button>
+                style={{ background: tab === t.id ? "rgba(59,130,246,0.2)" : "none", border: "none", borderRadius: 8, padding: "6px 12px", color: tab === t.id ? "#60A5FA" : "#94A3B8", cursor: "pointer", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
+                {t.icon} {t.label}
+              </button>
             ))}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -762,13 +1316,15 @@ export default function App() {
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
                   <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Admin Dashboard</h2>
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Filter Period</div>
-                    <DateRangeFilter filter={dashFilter} onChange={setDashFilter} allMonths={allMonths} />
+                  <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Filter Period</div>
+                      <DateRangeFilter filter={dashFilter} onChange={setDashFilter} allMonths={allMonths} />
+                    </div>
+                    <Button variant="success" onClick={() => setShowReportModal(true)}>📥 Expense Report</Button>
                   </div>
                 </div>
 
-                {/* Top stat cards */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 24 }}>
                   {(() => {
                     const mR = requests.filter(r => inRange(r.date, dashFilter));
@@ -789,13 +1345,16 @@ export default function App() {
                   ))}
                 </div>
 
-                <AdminSummary expenses={expenses} requests={requests} receivedFunds={receivedFunds} dashFilter={dashFilter} />
+                <AdminSummary expenses={expenses} requests={requests} receivedFunds={receivedFunds} dashFilter={dashFilter} engineers={engineers} />
               </>
             ) : (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 16, marginBottom: 24 }}>
                   <div><h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800 }}>Welcome, {user.name} 👋</h2><p style={{ margin: 0, color: "#6B7280", fontSize: 14 }}>{user.department}</p></div>
-                  <div style={{ display: "flex", gap: 10 }}><Button onClick={() => setShowFundForm(true)} variant="outline">💰 Request Funds</Button><Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button></div>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <Button onClick={() => setShowFundForm(true)} variant="outline">💰 Request Funds</Button>
+                    <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>
+                  </div>
                 </div>
                 <Card style={{ marginBottom: 20 }}>
                   <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700 }}>📒 My Ledger</h3>
@@ -833,13 +1392,12 @@ export default function App() {
               <Button variant="teal" onClick={() => { setEditReceivedFund(null); setShowReceivedFundModal(true); }}>+ Add Received Fund</Button>
             </div>
 
-            {/* Summary card */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, marginBottom: 20 }}>
               {(() => {
                 const filtered = receivedFunds.filter(f => inRange(f.date, rfDateFilter));
                 const total = filtered.reduce((s, f) => s + f.amount, 0);
                 const entries = filtered.length;
-                const latest = filtered.sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+                const latest = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
                 return [
                   { label: "Total Received", value: fmt(total), icon: "💵", color: "#065F46" },
                   { label: "Entries", value: entries, icon: "📋", color: "#1E40AF" },
@@ -857,14 +1415,10 @@ export default function App() {
             <div style={{ marginBottom: 16 }}>
               <DateRangeFilter filter={rfDateFilter} onChange={setRfDateFilter} allMonths={allMonths} />
             </div>
-
             <Card>
-              <ReceivedFundList
-                funds={receivedFunds}
-                filter={{ dateRange: rfDateFilter }}
+              <ReceivedFundList funds={receivedFunds} filter={{ dateRange: rfDateFilter }}
                 onEdit={f => { setEditReceivedFund(f); setShowReceivedFundModal(true); }}
-                onDelete={f => { setDeleteItem(f); setDeleteItemType("received"); }}
-              />
+                onDelete={f => { setDeleteItem(f); setDeleteItemType("received"); }} />
             </Card>
           </>
         )}
@@ -905,12 +1459,25 @@ export default function App() {
             </Card>
           </>
         )}
+
+        {/* ── DATABASE (admin only) ── */}
+        {tab === "database" && isAdmin && (
+          <AdminDatabase
+            users={allUsers}
+            customers={customers}
+            onSaveUser={saveUser}
+            onDeleteUser={deleteUser}
+            onSaveCustomer={saveCustomer}
+            onDeleteCustomer={deleteCustomer}
+          />
+        )}
       </div>
 
       {/* ── MODALS ── */}
-      {showFundForm && <FundRequestForm user={user} onSubmit={addRequest} onClose={() => setShowFundForm(false)} />}
-      {showExpenseForm && <ExpenseForm user={user} availableBalance={editExpense ? availableBalance + editExpense.amount : availableBalance} onSubmit={addExpense} onClose={() => { setShowExpenseForm(false); setEditExpense(null); }} editItem={editExpense} />}
+      {showFundForm && <FundRequestForm user={user} onSubmit={addRequest} onClose={() => setShowFundForm(false)} customers={customers} />}
+      {showExpenseForm && <ExpenseForm user={user} availableBalance={editExpense ? availableBalance + editExpense.amount : availableBalance} onSubmit={addExpense} onClose={() => { setShowExpenseForm(false); setEditExpense(null); }} editItem={editExpense} customers={customers} />}
       {showReceivedFundModal && <ReceivedFundModal onSave={saveReceivedFund} onClose={() => { setShowReceivedFundModal(false); setEditReceivedFund(null); }} editItem={editReceivedFund} />}
+      {showReportModal && <ExpenseReportModal engineers={engineers} expenses={expenses} receivedFunds={receivedFunds} requests={requests} onClose={() => setShowReportModal(false)} />}
 
       {reviewItem && (
         <AdminReviewModal item={reviewItem} type={reviewItem.type} onClose={() => setReviewItem(null)}
