@@ -7,9 +7,9 @@ import { db } from "./firebase";
 // This is the fallback/seed data only
 const DEFAULT_USERS = [
   { id: "admin", name: "Admin", role: "admin", password: "admin123", avatar: "A" },
-  { id: "eng1", name: "Arjun Menon", role: "engineer", password: "eng123", avatar: "AM", department: "South Kerala" },
-  { id: "eng2", name: "Priya Nair", role: "engineer", password: "eng456", avatar: "PN", department: "North Kerala" },
-  { id: "eng3", name: "Rahul Das", role: "engineer", password: "eng789", avatar: "RD", department: "Central Kerala" },
+  { id: "eng1", name: "Shubham", role: "engineer", password: "eng123", avatar: "AM", department: "South" },
+  { id: "eng2", name: "Sunil", role: "engineer", password: "eng456", avatar: "PN", department: "North" },
+  { id: "eng3", name: "Krishan", role: "engineer", password: "eng789", avatar: "RD", department: "north" },
 ];
 
 const CATEGORIES = [
