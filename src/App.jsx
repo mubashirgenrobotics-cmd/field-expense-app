@@ -3,8 +3,6 @@ import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from "fireb
 import { db } from "./firebase";
 
 // ─── INITIAL DATA ──────────────────────────────────────────────────────────────
-// Engineers and admin are now stored in Firestore under "users" collection
-// This is the fallback/seed data only
 const DEFAULT_USERS = [
   { id: "admin", name: "Admin", role: "admin", password: "admin123", avatar: "A" },
   { id: "eng1", name: "Shubham", role: "engineer", password: "eng123", avatar: "AM", department: "South" },
@@ -71,7 +69,6 @@ const compressImage = (file) => {
   });
 };
 
-// ─── ATTACHMENT DOWNLOAD ──────────────────────────────────────────────────────
 function downloadAttachment(exp) {
   if (!exp.attachment) return;
   const a = document.createElement("a");
@@ -81,7 +78,6 @@ function downloadAttachment(exp) {
   a.click();
 }
 
-// ─── EXPENSE REPORT PDF GENERATOR ─────────────────────────────────────────────
 async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, requests, dateFrom, dateTo }) {
   const filtered = expenses.filter(e => {
     if (engineer && e.engineerId !== engineer.id) return false;
@@ -102,7 +98,6 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
   const balance = totalReceived - approvedExpenses;
   const dateRange = `${dateFrom || "All"} to ${dateTo || "All"}`;
 
-  // Load jsPDF dynamically
   const script = document.createElement("script");
   script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
   document.head.appendChild(script);
@@ -112,7 +107,6 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const W = 210, M = 16;
 
-  // Header
   pdf.setFillColor(15, 23, 42);
   pdf.rect(0, 0, W, 38, "F");
   pdf.setTextColor(255, 255, 255);
@@ -123,14 +117,12 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
   pdf.setFontSize(9);
   pdf.text(`Generated: ${new Date().toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" })}`, W - M, 21, { align: "right" });
 
-  // Engineer info
   pdf.setFontSize(13); pdf.setFont("helvetica", "bold"); pdf.setTextColor(15, 23, 42);
   pdf.text(`Engineer: ${engineer ? engineer.name : "All Engineers"}`, M, 50);
   pdf.setFontSize(10); pdf.setFont("helvetica", "normal"); pdf.setTextColor(107, 114, 128);
   pdf.text(`Department: ${engineer ? (engineer.department || "—") : "—"}`, M, 57);
   pdf.text(`Period: ${dateRange}`, M, 63);
 
-  // Summary box
   pdf.setDrawColor(229, 231, 235); pdf.setLineWidth(0.3);
   pdf.setFillColor(249, 250, 251);
   pdf.roundedRect(M, 70, W - M*2, 42, 3, 3, "FD");
@@ -154,12 +146,10 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
     pdf.setFont("helvetica", "normal");
   });
 
-  // Expenses table
   let y = 120;
   pdf.setFontSize(11); pdf.setFont("helvetica", "bold"); pdf.setTextColor(15, 23, 42);
   pdf.text("Expense Details", M, y); y += 6;
 
-  // Table header
   pdf.setFillColor(15, 23, 42);
   pdf.rect(M, y, W - M*2, 7, "F");
   pdf.setTextColor(255,255,255); pdf.setFontSize(8); pdf.setFont("helvetica", "bold");
@@ -190,7 +180,6 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
     y += 7;
   });
 
-  // Total row
   pdf.setDrawColor(229, 231, 235); pdf.setLineWidth(0.3);
   pdf.line(M, y, W-M, y); y += 5;
   pdf.setFont("helvetica", "bold"); pdf.setFontSize(9); pdf.setTextColor(15, 23, 42);
@@ -198,7 +187,6 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
   pdf.text(fmt(totalExpenses), cols[4], y+4);
   y += 12;
 
-  // Attachments section
   const withAttach = filtered.filter(e => e.attachment);
   if (withAttach.length > 0) {
     pdf.addPage();
@@ -212,7 +200,6 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
       if (!exp.attachment || !exp.attachment.startsWith("data:image")) continue;
 
       pdf.addPage();
-      // Page header
       pdf.setFillColor(15, 23, 42);
       pdf.rect(0, 0, W, 16, "F");
       pdf.setTextColor(255,255,255); pdf.setFontSize(10); pdf.setFont("helvetica", "bold");
@@ -220,7 +207,6 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
       pdf.setFont("helvetica", "normal"); pdf.setFontSize(8);
       pdf.text(`${exp.description} · ${exp.date} · ${fmt(exp.amount)}`, W - M, 11, { align: "right" });
 
-      // Bill info box
       pdf.setFillColor(249, 250, 251);
       pdf.setDrawColor(229, 231, 235);
       pdf.roundedRect(M, 20, W-M*2, 22, 2, 2, "FD");
@@ -229,7 +215,6 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
       pdf.text(`Date: ${exp.date}    Amount: ${fmt(exp.amount)}    Status: ${exp.status?.toUpperCase()}`, M+4, 33);
       pdf.text(`Category: ${CATEGORIES.find(c=>c.id===exp.category)?.label || "Other"}    Customer: ${exp.customer || "—"}`, M+4, 39);
 
-      // Image
       try {
         const imgData = exp.attachment;
         const imgProps = pdf.getImageProperties(imgData);
@@ -252,6 +237,99 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
 function hexToRgb(hex) {
   const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return r ? [parseInt(r[1],16), parseInt(r[2],16), parseInt(r[3],16)] : [0,0,0];
+}
+
+// ─── CHARTS & DASHBOARD EXTENSIONS ────────────────────────────────────────────
+function SimplePieChart({ data, size = 160 }) {
+  if (!data || data.length === 0 || data.every(d => d.value === 0)) {
+    return <div style={{ width: size, height: size, borderRadius: "50%", background: "#F3F4F6", display: "flex", alignItems: "center", justifyContent: "center", color: "#9CA3AF", fontSize: 12 }}>No Data</div>;
+  }
+  
+  const total = data.reduce((s, d) => s + d.value, 0);
+  let angle = 0;
+  const gradient = data.map(d => {
+    const start = angle;
+    angle += (d.value / total) * 360;
+    return `${d.color} ${start}deg ${angle}deg`;
+  }).join(", ");
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap", justifyContent: "center" }}>
+      <div style={{ width: size, height: size, borderRadius: "50%", background: `conic-gradient(${gradient})`, boxShadow: "0 4px 10px rgba(0, 0, 0, 0.08)" }} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 160 }}>
+        {data.filter(d => d.value > 0).sort((a,b) => b.value - a.value).map((d, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13, background: "#F9FAFB", padding: "6px 10px", borderRadius: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 3, background: d.color }} />
+              <span style={{ color: "#4B5563", fontWeight: 600 }}>{d.label}</span>
+            </div>
+            <strong style={{ color: "#111827" }}>{fmt(d.value)}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LocationExpenseSummary({ expenses, customers, allMonths }) {
+  const [filterMonth, setFilterMonth] = useState("all");
+  const [selLoc, setSelLoc] = useState("all");
+
+  const filtered = expenses.filter(e => filterMonth === "all" || e.date.startsWith(filterMonth));
+  
+  const getLoc = (exp) => {
+    const c = customers.find(c => c.name === exp.customer);
+    return c?.location || "Unknown Location";
+  };
+  
+  const expsWithLoc = filtered.map(e => ({ ...e, location: getLoc(e) }));
+  const locations = [...new Set(expsWithLoc.map(e => e.location))];
+  const chartColors = ["#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#EF4444", "#14B8A6", "#F43F5E", "#0EA5E9"];
+
+  const locData = locations.map((loc, i) => ({
+    label: loc,
+    value: expsWithLoc.filter(e => e.location === loc).reduce((s, e) => s + e.amount, 0),
+    color: chartColors[i % chartColors.length]
+  }));
+
+  const catExps = selLoc === "all" ? expsWithLoc : expsWithLoc.filter(e => e.location === selLoc);
+  const catData = CATEGORIES.map(c => ({
+    label: c.label,
+    value: catExps.filter(e => e.category === c.id).reduce((s, e) => s + e.amount, 0),
+    color: c.color
+  }));
+
+  return (
+    <Card style={{ marginBottom: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📍 Location & Category Analysis</h3>
+        <div style={{ display: "flex", gap: 10 }}>
+          <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1.5px solid #E5E7EB", fontSize: 14, fontFamily: "'DM Sans', sans-serif", width: "auto" }}>
+            <option value="all">All Months</option>
+            {allMonths.map(m => <option key={m} value={m}>{new Date(m + "-01").toLocaleString("en-IN", { month: "short", year: "numeric" })}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 24 }}>
+        <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#374151", marginBottom: 16, textAlign: "center" }}>Expense Share by Location</div>
+          <SimplePieChart data={locData} />
+        </div>
+
+        <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: 20 }}>
+           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+             <div style={{ fontSize: 14, fontWeight: 700, color: "#374151" }}>Category Breakdown</div>
+             <select value={selLoc} onChange={e => setSelLoc(e.target.value)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #D1D5DB", fontSize: 12 }}>
+               <option value="all">All Locations</option>
+               {locations.map(l => <option key={l} value={l}>{l}</option>)}
+             </select>
+           </div>
+          <SimplePieChart data={catData} />
+        </div>
+      </div>
+    </Card>
+  );
 }
 
 // ─── COMPONENTS ───────────────────────────────────────────────────────────────
@@ -304,7 +382,6 @@ function Field({ label, children }) {
   return <div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#6B7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</label>{children}</div>;
 }
 
-// ─── CUSTOMER SEARCHABLE DROPDOWN ──────────────────────────────────────────────
 function CustomerDropdown({ value, onChange, customers }) {
   const [search, setSearch] = useState(value || "");
   const [open, setOpen] = useState(false);
@@ -358,7 +435,6 @@ function CustomerDropdown({ value, onChange, customers }) {
   );
 }
 
-// ─── DATE RANGE FILTER UI ─────────────────────────────────────────────────────
 function DateRangeFilter({ filter, onChange, allMonths }) {
   return (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -390,14 +466,16 @@ function Login({ onLogin, users }) {
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
   const allUsers = users.length > 0 ? users : DEFAULT_USERS;
+  
   const handle = () => {
     const u = allUsers.find(u => u.id === id && u.password === pw);
     if (u) onLogin(u); else setErr("Invalid credentials. Try again.");
   };
+
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0F172A 0%, #1E1B4B 50%, #0F172A 100%)", fontFamily: "'DM Sans', sans-serif" }}>
       <div style={{ textAlign: "center", width: "100%", maxWidth: 420, padding: "0 24px" }}>
-        <div style={{ width: 72, height: 72, background: "linear-gradient(135deg,#3B82F6,#7C3AED)", borderRadius: 20, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: 32 }}>⚡</div>
+        <img src="exp pro.png" alt="FieldExpense Pro Logo" style={{ width: 100, height: 100, borderRadius: 20, margin: "0 auto 16px", display: "block", objectFit: "contain", background: "#fff", padding: 4 }} />
         <h1 style={{ color: "#fff", fontSize: 28, fontWeight: 800, margin: "0 0 4px" }}>FieldExpense Pro</h1>
         <p style={{ color: "#94A3B8", fontSize: 14, margin: "0 0 32px" }}>Field Engineer Expense Management</p>
         <Card>
@@ -421,12 +499,8 @@ function Login({ onLogin, users }) {
 // ─── ADMIN DATABASE PANEL ─────────────────────────────────────────────────────
 function AdminDatabase({ users, customers, onSaveUser, onDeleteUser, onSaveCustomer, onDeleteCustomer }) {
   const [activeTab, setActiveTab] = useState("engineers");
-
-  // Engineer management
   const [showEngForm, setShowEngForm] = useState(false);
   const [editEng, setEditEng] = useState(null);
-
-  // Customer management
   const [showCustForm, setShowCustForm] = useState(false);
   const [editCust, setEditCust] = useState(null);
   const [custSearch, setCustSearch] = useState("");
@@ -446,7 +520,6 @@ function AdminDatabase({ users, customers, onSaveUser, onDeleteUser, onSaveCusto
         </div>
       </div>
 
-      {/* Sub-tabs */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
         {[{ id: "engineers", label: "👷 Engineers", count: engineers.length }, { id: "customers", label: "👥 Customers", count: customers.length }].map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
@@ -457,7 +530,6 @@ function AdminDatabase({ users, customers, onSaveUser, onDeleteUser, onSaveCusto
         ))}
       </div>
 
-      {/* ENGINEERS TAB */}
       {activeTab === "engineers" && (
         <>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
@@ -485,7 +557,6 @@ function AdminDatabase({ users, customers, onSaveUser, onDeleteUser, onSaveCusto
         </>
       )}
 
-      {/* CUSTOMERS TAB */}
       {activeTab === "customers" && (
         <>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 12, flexWrap: "wrap" }}>
@@ -515,16 +586,13 @@ function AdminDatabase({ users, customers, onSaveUser, onDeleteUser, onSaveCusto
         </>
       )}
 
-      {/* Engineer Form Modal */}
       {showEngForm && <EngineerFormModal editItem={editEng} onSave={onSaveUser} onClose={() => { setShowEngForm(false); setEditEng(null); }} existingIds={users.map(u => u.id)} />}
-
-      {/* Customer Form Modal */}
       {showCustForm && <CustomerFormModal editItem={editCust} onSave={onSaveCustomer} onClose={() => { setShowCustForm(false); setEditCust(null); }} />}
     </div>
   );
 }
 
-// ─── ENGINEER FORM MODAL ──────────────────────────────────────────────────────
+// ─── MODALS & FORMS ──────────────────────────────────────────────────────────
 function EngineerFormModal({ editItem, onSave, onClose, existingIds }) {
   const [name, setName] = useState(editItem?.name || "");
   const [department, setDepartment] = useState(editItem?.department || "");
@@ -550,12 +618,8 @@ function EngineerFormModal({ editItem, onSave, onClose, existingIds }) {
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>👷 {editItem ? "Edit Engineer" : "Add Engineer"}</h3>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
         </div>
-        <Field label="Full Name">
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Arjun Menon" style={inputStyle} />
-        </Field>
-        <Field label="Department / Region">
-          <input value={department} onChange={e => setDepartment(e.target.value)} placeholder="e.g. South Kerala" style={inputStyle} />
-        </Field>
+        <Field label="Full Name"><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Arjun Menon" style={inputStyle} /></Field>
+        <Field label="Department / Region"><input value={department} onChange={e => setDepartment(e.target.value)} placeholder="e.g. South Kerala" style={inputStyle} /></Field>
         <Field label="Password">
           <div style={{ display: "flex", gap: 6 }}>
             <input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="Set login password" style={{ ...inputStyle, flex: 1 }} />
@@ -573,7 +637,6 @@ function EngineerFormModal({ editItem, onSave, onClose, existingIds }) {
   );
 }
 
-// ─── CUSTOMER FORM MODAL ──────────────────────────────────────────────────────
 function CustomerFormModal({ editItem, onSave, onClose }) {
   const [name, setName] = useState(editItem?.name || "");
   const [code, setCode] = useState(editItem?.code || "");
@@ -593,20 +656,12 @@ function CustomerFormModal({ editItem, onSave, onClose }) {
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>👥 {editItem ? "Edit Customer" : "Add Customer"}</h3>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
         </div>
-        <Field label="Customer Name *">
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. BSNL Kochi" style={inputStyle} />
-        </Field>
+        <Field label="Customer Name *"><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. BSNL Kochi" style={inputStyle} /></Field>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Customer Code">
-            <input value={code} onChange={e => setCode(e.target.value)} placeholder="e.g. BSN-001" style={inputStyle} />
-          </Field>
-          <Field label="Location">
-            <input value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Ernakulam" style={inputStyle} />
-          </Field>
+          <Field label="Customer Code"><input value={code} onChange={e => setCode(e.target.value)} placeholder="e.g. BSN-001" style={inputStyle} /></Field>
+          <Field label="Location"><input value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Ernakulam" style={inputStyle} /></Field>
         </div>
-        <Field label="Contact / Notes">
-          <input value={contact} onChange={e => setContact(e.target.value)} placeholder="Contact person or notes" style={inputStyle} />
-        </Field>
+        <Field label="Contact / Notes"><input value={contact} onChange={e => setContact(e.target.value)} placeholder="Contact person or notes" style={inputStyle} /></Field>
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
           <Button onClick={submit} disabled={!name} style={{ flex: 1 }}>{editItem ? "Update" : "Add Customer"}</Button>
@@ -616,7 +671,6 @@ function CustomerFormModal({ editItem, onSave, onClose }) {
   );
 }
 
-// ─── EXPENSE REPORT MODAL ─────────────────────────────────────────────────────
 function ExpenseReportModal({ engineers, expenses, receivedFunds, requests, onClose }) {
   const [selEng, setSelEng] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -624,8 +678,6 @@ function ExpenseReportModal({ engineers, expenses, receivedFunds, requests, onCl
   const [loading, setLoading] = useState(false);
 
   const engineer = engineers.find(e => e.id === selEng) || null;
-
-  // Preview stats
   const filtered = expenses.filter(e => {
     if (selEng && e.engineerId !== selEng) return false;
     if (dateFrom && e.date < dateFrom) return false;
@@ -643,9 +695,8 @@ function ExpenseReportModal({ engineers, expenses, receivedFunds, requests, onCl
 
   const download = async () => {
     setLoading(true);
-    try {
-      await generateExpenseReportPDF({ engineer, expenses, receivedFunds, requests, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined });
-    } finally { setLoading(false); }
+    try { await generateExpenseReportPDF({ engineer, expenses, receivedFunds, requests, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined }); } 
+    finally { setLoading(false); }
   };
 
   return (
@@ -662,15 +713,10 @@ function ExpenseReportModal({ engineers, expenses, receivedFunds, requests, onCl
           </select>
         </Field>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Date From">
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={inputStyle} />
-          </Field>
-          <Field label="Date To">
-            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={inputStyle} />
-          </Field>
+          <Field label="Date From"><input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={inputStyle} /></Field>
+          <Field label="Date To"><input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={inputStyle} /></Field>
         </div>
 
-        {/* Preview */}
         <div style={{ background: "#F9FAFB", borderRadius: 12, padding: 16, marginBottom: 16 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", marginBottom: 10 }}>Report Preview</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -682,29 +728,21 @@ function ExpenseReportModal({ engineers, expenses, receivedFunds, requests, onCl
               ["Approved Expenses", fmt(approvedExp)],
               ["Balance", fmt(totalReceived - approvedExp)],
             ].map(([k, v]) => (
-              <div key={k} style={{ fontSize: 12 }}>
-                <span style={{ color: "#9CA3AF" }}>{k}: </span>
-                <span style={{ fontWeight: 600, color: "#111827" }}>{v}</span>
-              </div>
+              <div key={k} style={{ fontSize: 12 }}><span style={{ color: "#9CA3AF" }}>{k}: </span><span style={{ fontWeight: 600, color: "#111827" }}>{v}</span></div>
             ))}
           </div>
-          <div style={{ marginTop: 8, fontSize: 11, color: "#9CA3AF" }}>
-            📎 {filtered.filter(e => e.attachment).length} bill attachment(s) will be included
-          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: "#9CA3AF" }}>📎 {filtered.filter(e => e.attachment).length} bill attachment(s) will be included</div>
         </div>
 
         <div style={{ display: "flex", gap: 10 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
-          <Button onClick={download} disabled={loading} variant="success" style={{ flex: 1 }}>
-            {loading ? "⏳ Generating..." : "📥 Download PDF"}
-          </Button>
+          <Button onClick={download} disabled={loading} variant="success" style={{ flex: 1 }}>{loading ? "⏳ Generating..." : "📥 Download PDF"}</Button>
         </div>
       </Card>
     </div>
   );
 }
 
-// ─── RECEIVED FUND FORM MODAL ─────────────────────────────────────────────────
 function ReceivedFundModal({ onSave, onClose, editItem }) {
   const [amount, setAmount] = useState(editItem?.amount || "");
   const [date, setDate] = useState(editItem?.date || today());
@@ -745,7 +783,6 @@ function ReceivedFundModal({ onSave, onClose, editItem }) {
   );
 }
 
-// ─── ADMIN REVIEW MODAL ───────────────────────────────────────────────────────
 function AdminReviewModal({ item, type, onClose, onApprove, onReject }) {
   const [amount, setAmount] = useState(item.amount);
   const [comment, setComment] = useState("");
@@ -761,13 +798,10 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject }) {
           <strong>Date:</strong> {item.date}<br />
           <strong>Original Amount:</strong> <span style={{ color: "#1E40AF", fontWeight: 700 }}>{fmt(item.amount)}</span>
         </div>
-        <Field label="Approved Amount (₹)">
-          <input type="number" value={amount} onChange={e => setAmount(e.target.value)} style={inputStyle} />
-        </Field>
+        <Field label="Approved Amount (₹)"><input type="number" value={amount} onChange={e => setAmount(e.target.value)} style={inputStyle} /></Field>
         {amountChanged && (
           <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 13 }}>
-            <span style={{ color: "#92400E", fontWeight: 600 }}>⚠️ Amount edited:</span>{" "}
-            <span style={{ color: "#78350F" }}>{fmt(item.amount)} → {fmt(parseFloat(amount) || 0)}</span>
+            <span style={{ color: "#92400E", fontWeight: 600 }}>⚠️ Amount edited:</span> <span style={{ color: "#78350F" }}>{fmt(item.amount)} → {fmt(parseFloat(amount) || 0)}</span>
           </div>
         )}
         <Field label={`Admin Comment ${amountChanged ? "(required)" : "(optional)"}`}>
@@ -783,50 +817,72 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject }) {
   );
 }
 
-// ─── FUND REQUEST FORM ────────────────────────────────────────────────────────
+// ─── UPDATED CATEGORY-BASED FUND REQUEST FORM ─────────────────────────────────
 function FundRequestForm({ user, onSubmit, onClose, customers }) {
-  const [amount, setAmount] = useState("");
+  const [breakdown, setBreakdown] = useState({});
   const [reason, setReason] = useState("");
-  const [category, setCategory] = useState("travel");
   const [customer, setCustomer] = useState("");
 
+  const handleAmountChange = (catId, val) => {
+    setBreakdown(prev => ({ ...prev, [catId]: parseFloat(val) || 0 }));
+  };
+
+  const totalAmount = CATEGORIES.reduce((sum, cat) => sum + (breakdown[cat.id] || 0), 0);
+
   const submit = () => {
-    if (!amount || !reason) return;
-    onSubmit({ id: uid(), engineerId: user.id, engineerName: user.name, amount: parseFloat(amount), reason, category, customer, status: "pending", date: today(), type: "fund_request" });
+    if (totalAmount <= 0 || !reason) return;
+    const breakdownText = CATEGORIES.map(c => breakdown[c.id] ? `${c.label}: ${fmt(breakdown[c.id])}` : null).filter(Boolean).join(", ");
+
+    onSubmit({ 
+      id: uid(), engineerId: user.id, engineerName: user.name, 
+      amount: totalAmount, reason: `${reason} (${breakdownText})`, 
+      breakdown, category: "multiple", customer, 
+      status: "pending", date: today(), type: "fund_request" 
+    });
     onClose();
   };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
-      <Card style={{ width: "100%", maxWidth: 460 }}>
+      <Card style={{ width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>💰 Request Funds</h3>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
         </div>
-        <Field label="Category">
-          <select value={category} onChange={e => setCategory(e.target.value)} style={inputStyle}>
-            {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
-          </select>
-        </Field>
+        
         <Field label="Customer (optional)">
           <CustomerDropdown value={customer} onChange={setCustomer} customers={customers} />
         </Field>
-        <Field label="Amount Requested (₹)">
-          <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" style={inputStyle} />
+        
+        <div style={{ background: "#F9FAFB", padding: 16, borderRadius: 12, marginBottom: 14 }}>
+          <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#6B7280", marginBottom: 10, textTransform: "uppercase" }}>Expense Breakdown</label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {CATEGORIES.map(c => (
+              <div key={c.id}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginBottom: 4, color: "#4B5563" }}>{c.icon} {c.label}</label>
+                <input type="number" placeholder="0.00" value={breakdown[c.id] || ""} onChange={e => handleAmountChange(c.id, e.target.value)} style={inputStyle} />
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #D1D5DB", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>Total Amount:</span>
+            <span style={{ fontWeight: 800, fontSize: 18, color: "#1E40AF" }}>{fmt(totalAmount)}</span>
+          </div>
+        </div>
+
+        <Field label="Reason / Trip Details">
+          <textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Describe the purpose of this request..." rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </Field>
-        <Field label="Reason / Description">
-          <textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Describe why you need these funds..." rows={3} style={{ ...inputStyle, resize: "vertical" }} />
-        </Field>
+        
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
-          <Button onClick={submit} disabled={!amount || !reason} style={{ flex: 1 }}>Submit Request</Button>
+          <Button onClick={submit} disabled={totalAmount <= 0 || !reason} style={{ flex: 1 }}>Submit Request</Button>
         </div>
       </Card>
     </div>
   );
 }
 
-// ─── EXPENSE FORM ─────────────────────────────────────────────────────────────
 function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, customers }) {
   const [amount, setAmount] = useState(editItem?.amount || "");
   const [category, setCategory] = useState(editItem?.category || "travel");
@@ -875,9 +931,7 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
               {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
             </select>
           </Field>
-          <Field label="Date">
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
-          </Field>
+          <Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} /></Field>
         </div>
         <Field label="Customer (optional)">
           <CustomerDropdown value={customer} onChange={setCustomer} customers={customers} />
@@ -886,9 +940,7 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
           <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" style={{ ...inputStyle, borderColor: over ? "#EF4444" : undefined }} />
           {over && <span style={{ color: "#EF4444", fontSize: 12 }}>⚠ Exceeds available balance</span>}
         </Field>
-        <Field label="Description">
-          <input value={description} onChange={e => setDescription(e.target.value)} placeholder="What was this expense for?" style={inputStyle} />
-        </Field>
+        <Field label="Description"><input value={description} onChange={e => setDescription(e.target.value)} placeholder="What was this expense for?" style={inputStyle} /></Field>
         <Field label="Attachment (Camera/Bill)">
           <div onClick={() => fileRef.current.click()} style={{ border: `2px dashed ${attachment ? "#10B981" : "#D1D5DB"}`, borderRadius: 10, padding: "16px", textAlign: "center", cursor: "pointer", background: attachment ? "#F0FDF4" : "#F9FAFB" }}>
             {attachment ? <><span style={{ fontSize: 22 }}>✅</span><br /><span style={{ fontSize: 13, color: "#065F46", fontWeight: 600 }}>{attachName}</span></> : <><span style={{ fontSize: 22 }}>📷</span><br /><span style={{ fontSize: 13, color: "#6B7280" }}>Tap to take photo or upload bill</span></>}
@@ -904,7 +956,6 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
   );
 }
 
-// ─── CONFIRM DELETE MODAL ─────────────────────────────────────────────────────
 function ConfirmDeleteModal({ item, itemType, onConfirm, onClose }) {
   const label = itemType === "request" ? `fund request of ${fmt(item.amount)}` : itemType === "received" ? `received fund of ${fmt(item.amount)}` : `expense "${item.description}" (${fmt(item.amount)})`;
   return (
@@ -921,7 +972,6 @@ function ConfirmDeleteModal({ item, itemType, onConfirm, onClose }) {
   );
 }
 
-// ─── EXPENSE LIST ─────────────────────────────────────────────────────────────
 function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, isAdmin, filter }) {
   const cat = (id) => CATEGORIES.find(c => c.id === id) || CATEGORIES[3];
   const filtered = expenses
@@ -985,7 +1035,6 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
   );
 }
 
-// ─── REQUEST LIST ─────────────────────────────────────────────────────────────
 function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete }) {
   const filtered = requests
     .filter(r => {
@@ -1007,7 +1056,7 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
         return (
           <div key={req.id} style={{ padding: "14px 16px", background: "#FAFAFA", borderRadius: 12, border: "1px solid #F3F4F6" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{c.icon}</div>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{req.category === "multiple" ? "💸" : c.icon}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                   <span style={{ fontWeight: 700, fontSize: 15, color: "#1E40AF" }}>{fmt(req.amount)}</span>
@@ -1023,17 +1072,6 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
                 {isAdmin && <Button small variant="danger" onClick={() => onDelete(req)}>🗑️</Button>}
               </div>
             </div>
-            {hasEditLog && (
-              <div style={{ marginTop: 10, borderTop: "1px solid #F3F4F6", paddingTop: 10 }}>
-                {req.editLog.map((entry, i) => (
-                  <div key={i} style={{ fontSize: 12, color: "#78350F", background: "#FFFBEB", borderRadius: 6, padding: "6px 10px", marginBottom: 4, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                    <span>📝 <strong>{entry.date}</strong></span>
-                    <span>{fmt(entry.before)} → <strong>{fmt(entry.after)}</strong></span>
-                    {entry.comment && <span style={{ color: "#92400E" }}>"{entry.comment}"</span>}
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         );
       })}
@@ -1041,7 +1079,6 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
   );
 }
 
-// ─── RECEIVED FUNDS LIST ──────────────────────────────────────────────────────
 function ReceivedFundList({ funds, onEdit, onDelete, filter }) {
   const filtered = funds
     .filter(f => inRange(f.date, filter.dateRange || { mode: "all" }))
@@ -1075,7 +1112,6 @@ function ReceivedFundList({ funds, onEdit, onDelete, filter }) {
   );
 }
 
-// ─── ADMIN DASHBOARD SUMMARY ──────────────────────────────────────────────────
 function AdminSummary({ expenses, requests, receivedFunds, dashFilter, engineers }) {
   const mReqs = requests.filter(r => inRange(r.date, dashFilter));
   const mExps = expenses.filter(e => inRange(e.date, dashFilter));
@@ -1184,14 +1220,12 @@ export default function App() {
     return () => unsubs.forEach(u => u());
   }, []);
 
-  // Seed default users to Firestore if none exist
   useEffect(() => {
     if (dbUsers.length === 0) {
       DEFAULT_USERS.forEach(u => setDoc(doc(db, "users", u.id), u));
     }
   }, [dbUsers]);
 
-  // All active users (from DB or default)
   const allUsers = dbUsers.length > 0 ? dbUsers : DEFAULT_USERS;
   const engineers = allUsers.filter(u => u.role === "engineer");
 
@@ -1210,17 +1244,12 @@ export default function App() {
     ...receivedFunds.map(f => monthOf(f.date)),
   ])).filter(Boolean).sort((a, b) => b.localeCompare(a));
 
-  // Firebase writes
   const addRequest = async (req) => await setDoc(doc(db, "requests", req.id), req);
   const addExpense = async (exp) => await setDoc(doc(db, "expenses", exp.id), exp);
   const saveReceivedFund = async (fund) => await setDoc(doc(db, "receivedFunds", fund.id), fund);
   const deleteReceivedFund = async (id) => await deleteDoc(doc(db, "receivedFunds", id));
-
-  // User (engineer) management
   const saveUser = async (u) => await setDoc(doc(db, "users", u.id), u);
   const deleteUser = async (id) => await deleteDoc(doc(db, "users", id));
-
-  // Customer management
   const saveCustomer = async (c) => await setDoc(doc(db, "customers", c.id), c);
   const deleteCustomer = async (id) => await deleteDoc(doc(db, "customers", id));
 
@@ -1288,7 +1317,7 @@ export default function App() {
       <div style={{ background: "#0F172A", padding: "0 24px", position: "sticky", top: 0, zIndex: 100, overflowX: "auto" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", gap: 20, height: 58, minWidth: 600 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            <div style={{ fontSize: 22 }}>⚡</div>
+            <img src="exp pro.png" alt="Logo" style={{ height: 36, width: 36, borderRadius: 8, objectFit: "contain", background: "#fff", padding: 2 }} />
             <span style={{ color: "#fff", fontWeight: 800, fontSize: 16 }}>FieldExpense</span>
           </div>
           <div style={{ display: "flex", gap: 2, flex: 1 }}>
@@ -1345,6 +1374,7 @@ export default function App() {
                   ))}
                 </div>
 
+                <LocationExpenseSummary expenses={expenses} customers={customers} allMonths={allMonths} />
                 <AdminSummary expenses={expenses} requests={requests} receivedFunds={receivedFunds} dashFilter={dashFilter} engineers={engineers} />
               </>
             ) : (
@@ -1356,6 +1386,9 @@ export default function App() {
                     <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>
                   </div>
                 </div>
+                
+                <LocationExpenseSummary expenses={myExpenses} customers={customers} allMonths={allMonths} />
+                
                 <Card style={{ marginBottom: 20 }}>
                   <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700 }}>📒 My Ledger</h3>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
@@ -1463,12 +1496,9 @@ export default function App() {
         {/* ── DATABASE (admin only) ── */}
         {tab === "database" && isAdmin && (
           <AdminDatabase
-            users={allUsers}
-            customers={customers}
-            onSaveUser={saveUser}
-            onDeleteUser={deleteUser}
-            onSaveCustomer={saveCustomer}
-            onDeleteCustomer={deleteCustomer}
+            users={allUsers} customers={customers}
+            onSaveUser={saveUser} onDeleteUser={deleteUser}
+            onSaveCustomer={saveCustomer} onDeleteCustomer={deleteCustomer}
           />
         )}
       </div>
