@@ -266,6 +266,11 @@ function SimplePieChart({ data, size = 160 }) {
             <strong style={{ color: "#111827" }}>{fmt(d.value)}</strong>
           </div>
         ))}
+        {/* ADDED TOTAL SECTION */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, background: "#EEF2FF", padding: "8px 10px", borderRadius: 8, marginTop: 4, border: "1px solid #C7D2FE" }}>
+          <span style={{ color: "#1E40AF", fontWeight: 800 }}>Total</span>
+          <strong style={{ color: "#1E40AF", fontWeight: 800 }}>{fmt(total)}</strong>
+        </div>
       </div>
     </div>
   );
@@ -275,7 +280,11 @@ function LocationExpenseSummary({ expenses, customers, allMonths }) {
   const [filterMonth, setFilterMonth] = useState("all");
   const [selLoc, setSelLoc] = useState("all");
 
-  const filtered = expenses.filter(e => filterMonth === "all" || e.date.startsWith(filterMonth));
+  // ONLY show APPROVED expenses in the Pie Chart summaries
+  const filtered = expenses.filter(e => 
+    (filterMonth === "all" || e.date.startsWith(filterMonth)) && 
+    e.status === "approved"
+  );
   
   const getLoc = (exp) => {
     const c = customers.find(c => c.name === exp.customer);
@@ -302,7 +311,7 @@ function LocationExpenseSummary({ expenses, customers, allMonths }) {
   return (
     <Card style={{ marginBottom: 24 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
-        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📍 Location & Category Analysis</h3>
+        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📍 Approved Expenses Analysis</h3>
         <div style={{ display: "flex", gap: 10 }}>
           <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1.5px solid #E5E7EB", fontSize: 14, fontFamily: "'DM Sans', sans-serif", width: "auto" }}>
             <option value="all">All Months</option>
@@ -475,7 +484,13 @@ function Login({ onLogin, users }) {
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0F172A 0%, #1E1B4B 50%, #0F172A 100%)", fontFamily: "'DM Sans', sans-serif" }}>
       <div style={{ textAlign: "center", width: "100%", maxWidth: 420, padding: "0 24px" }}>
-        <img src="exp pro.png" alt="FieldExpense Pro Logo" style={{ width: 100, height: 100, borderRadius: 20, margin: "0 auto 16px", display: "block", objectFit: "contain", background: "#fff", padding: 4 }} />
+        
+        {/* ADDED PROPER LOGO WITH CSS FALLBACK */}
+        <div style={{ position: "relative", width: 100, height: 100, margin: "0 auto 16px" }}>
+          <div style={{ position: "absolute", inset: 0, borderRadius: 20, background: "linear-gradient(135deg, #1E40AF, #7C3AED)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 40, fontWeight: 800 }}>FE</div>
+          <img src="exp pro.png" alt="FieldExpense Pro Logo" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", borderRadius: 20, objectFit: "contain", background: "#fff", padding: 4 }} onError={(e) => e.target.style.display='none'} />
+        </div>
+
         <h1 style={{ color: "#fff", fontSize: 28, fontWeight: 800, margin: "0 0 4px" }}>FieldExpense Pro</h1>
         <p style={{ color: "#94A3B8", fontSize: 14, margin: "0 0 32px" }}>Field Engineer Expense Management</p>
         <Card>
@@ -817,7 +832,6 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject }) {
   );
 }
 
-// ─── UPDATED CATEGORY-BASED FUND REQUEST FORM ─────────────────────────────────
 function FundRequestForm({ user, onSubmit, onClose, customers }) {
   const [breakdown, setBreakdown] = useState({});
   const [reason, setReason] = useState("");
@@ -1053,16 +1067,31 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
       {filtered.map(req => {
         const c = CATEGORIES.find(c => c.id === req.category) || CATEGORIES[3];
         const hasEditLog = req.editLog && req.editLog.length > 0;
+        
+        // CALC ORIGINAL AMOUNT FOR EDITED REQUESTS
+        const originalAmt = hasEditLog && req.editLog[0].before !== undefined ? req.editLog[0].before : req.amount;
+        const isEditedAmt = parseFloat(originalAmt) !== parseFloat(req.amount);
+
         return (
           <div key={req.id} style={{ padding: "14px 16px", background: "#FAFAFA", borderRadius: 12, border: "1px solid #F3F4F6" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <div style={{ width: 40, height: 40, borderRadius: 10, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{req.category === "multiple" ? "💸" : c.icon}</div>
               <div style={{ flex: 1 }}>
+                
+                {/* DISPLAY BOTH REQUESTED AND APPROVED IF EDITED */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: 700, fontSize: 15, color: "#1E40AF" }}>{fmt(req.amount)}</span>
+                  {isEditedAmt ? (
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#ECFDF5", padding: "4px 8px", borderRadius: 6, border: "1px dashed #34D399" }}>
+                      <span style={{ fontSize: 12, color: "#6B7280", textDecoration: "line-through" }}>Requested: {fmt(originalAmt)}</span>
+                      <span style={{ fontWeight: 800, fontSize: 15, color: "#065F46" }}>Approved: {fmt(req.amount)}</span>
+                    </div>
+                  ) : (
+                    <span style={{ fontWeight: 700, fontSize: 15, color: "#1E40AF" }}>{fmt(req.amount)}</span>
+                  )}
                   <Badge status={req.status} />
                   {hasEditLog && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>EDITED</span>}
                 </div>
+                
                 <div style={{ fontSize: 13, color: "#6B7280" }}>{req.reason}</div>
                 {req.customer && <div style={{ fontSize: 12, color: "#7C3AED", fontWeight: 600, marginTop: 2 }}>👥 {req.customer}</div>}
                 {isAdmin && <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>By: {req.engineerName} · {req.date}</div>}
@@ -1316,10 +1345,16 @@ export default function App() {
       {/* NAV */}
       <div style={{ background: "#0F172A", padding: "0 24px", position: "sticky", top: 0, zIndex: 100, overflowX: "auto" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", gap: 20, height: 58, minWidth: 600 }}>
+          
+          {/* ADDED PROPER LOGO WITH CSS FALLBACK */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            <img src="exp pro.png" alt="Logo" style={{ height: 36, width: 36, borderRadius: 8, objectFit: "contain", background: "#fff", padding: 2 }} />
+            <div style={{ position: "relative", height: 36, width: 36, flexShrink: 0 }}>
+              <div style={{ position: "absolute", inset: 0, borderRadius: 8, background: "linear-gradient(135deg, #1E40AF, #7C3AED)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 16, fontWeight: 800 }}>FE</div>
+              <img src="exp pro.png" alt="Logo" style={{ position: "absolute", inset: 0, height: "100%", width: "100%", borderRadius: 8, objectFit: "contain", background: "#fff", padding: 2 }} onError={(e) => e.target.style.display='none'} />
+            </div>
             <span style={{ color: "#fff", fontWeight: 800, fontSize: 16 }}>FieldExpense</span>
           </div>
+
           <div style={{ display: "flex", gap: 2, flex: 1 }}>
             {tabs.map(t => (
               <button key={t.id} onClick={() => { setTab(t.id); setFilterStatus("all"); setFilterEngineer(""); setTabDateFilter({ mode: "all", month: monthOf(today()), from: today(), to: today() }); }}
