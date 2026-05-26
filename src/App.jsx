@@ -2,6 +2,40 @@ import { useState, useEffect, useRef } from "react";
 import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
+// ─── GLOBAL STYLES (FONTS & DARK MODE) ────────────────────────────────────────
+const GLOBAL_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+  :root {
+    --bg-page: #F8FAFC;
+    --bg-card: #ffffff;
+    --text-main: #111827;
+    --text-muted: #6B7280;
+    --text-light: #9CA3AF;
+    --border: #E5E7EB;
+    --input-bg: #F9FAFB;
+    --hover-bg: #F3F4F6;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-page: #0F172A;
+      --bg-card: #1E293B;
+      --text-main: #F9FAFB;
+      --text-muted: #9CA3AF;
+      --text-light: #64748B;
+      --border: #334155;
+      --input-bg: #0F172A;
+      --hover-bg: #334155;
+    }
+  }
+
+  * {
+    font-family: 'Plus Jakarta Sans', -apple-system, sans-serif !important;
+    letter-spacing: -0.01em;
+  }
+`;
+
 // ─── INITIAL DATA ──────────────────────────────────────────────────────────────
 const DEFAULT_USERS = [
   { id: "admin", name: "Admin", role: "admin", password: "admin123", avatar: "A" },
@@ -14,7 +48,7 @@ const CATEGORIES = [
   { id: "travel", label: "Travel", icon: "✈️", color: "#3B82F6" },
   { id: "accommodation", label: "Accommodation", icon: "🏨", color: "#8B5CF6" },
   { id: "local_purchase", label: "Local Purchase", icon: "🛒", color: "#F59E0B" },
-  { id: "other", label: "Other", icon: "📦", color: "#6B7280" },
+  { id: "other", label: "Other", icon: "📦", color: "#10B981" },
 ];
 
 const STATUS_CONFIG = {
@@ -86,18 +120,21 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
     return true;
   });
 
+  const filteredReqs = requests.filter(r => {
+    if (engineer && r.engineerId !== engineer.id) return false;
+    if (dateFrom && r.date < dateFrom) return false;
+    if (dateTo && r.date > dateTo) return false;
+    return true;
+  });
+
   const filteredFunds = receivedFunds.filter(f => {
     if (dateFrom && f.date < dateFrom) return false;
     if (dateTo && f.date > dateTo) return false;
     return true;
   });
 
-  const totalReceived = filteredFunds.reduce((s, f) => s + f.amount, 0);
-  const totalExpenses = filtered.reduce((s, e) => s + e.amount, 0);
-  const approvedExpenses = filtered.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
-  const balance = totalReceived - approvedExpenses;
   const dateRange = `${dateFrom || "All"} to ${dateTo || "All"}`;
-
+  
   const script = document.createElement("script");
   script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
   document.head.appendChild(script);
@@ -128,12 +165,34 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
   pdf.roundedRect(M, 70, W - M*2, 42, 3, 3, "FD");
   pdf.setFontSize(9); pdf.setTextColor(107, 114, 128); pdf.setFont("helvetica", "normal");
 
-  const summaryItems = [
-    ["Total Received (period)", fmt(totalReceived), "#065F46"],
-    ["Total Submitted Expenses", fmt(totalExpenses), "#EF4444"],
-    ["Approved Expenses", fmt(approvedExpenses), "#10B981"],
-    ["Balance / Reimbursement", fmt(balance), balance < 0 ? "#EF4444" : "#1E40AF"],
-  ];
+  let summaryItems = [];
+  
+  if (engineer) {
+    // Engineer-specific calculation requested
+    const totalApprovedAmount = filteredReqs.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
+    const approvedExpenses = filtered.filter(e => e.status === "approved");
+    const totalSubmittedApprovedBillAmount = approvedExpenses.reduce((s, e) => s + e.amount, 0); // All approved bills
+    const balance = totalApprovedAmount - totalSubmittedApprovedBillAmount;
+
+    summaryItems = [
+      ["Total Approved Amount (Funds)", fmt(totalApprovedAmount), "#10B981"],
+      ["Total Submitted Approved Bills", fmt(totalSubmittedApprovedBillAmount), "#EF4444"],
+      ["Remaining Balance", fmt(balance), balance < 0 ? "#EF4444" : "#1E40AF"],
+    ];
+  } else {
+    // Admin overall calculation
+    const totalReceived = filteredFunds.reduce((s, f) => s + f.amount, 0);
+    const totalExpenses = filtered.reduce((s, e) => s + e.amount, 0);
+    const approvedExpenses = filtered.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
+    const balance = totalReceived - approvedExpenses;
+
+    summaryItems = [
+      ["Total Received (period)", fmt(totalReceived), "#065F46"],
+      ["Total Submitted Expenses", fmt(totalExpenses), "#EF4444"],
+      ["Approved Expenses", fmt(approvedExpenses), "#10B981"],
+      ["Balance / Reimbursement", fmt(balance), balance < 0 ? "#EF4444" : "#1E40AF"],
+    ];
+  }
 
   summaryItems.forEach(([label, value, color], i) => {
     const x = M + (i % 2) * ((W - M*2) / 2) + 6;
@@ -179,13 +238,6 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
     pdf.setTextColor(15, 23, 42);
     y += 7;
   });
-
-  pdf.setDrawColor(229, 231, 235); pdf.setLineWidth(0.3);
-  pdf.line(M, y, W-M, y); y += 5;
-  pdf.setFont("helvetica", "bold"); pdf.setFontSize(9); pdf.setTextColor(15, 23, 42);
-  pdf.text("TOTAL SUBMITTED", cols[0], y+4);
-  pdf.text(fmt(totalExpenses), cols[4], y+4);
-  y += 12;
 
   const withAttach = filtered.filter(e => e.attachment);
   if (withAttach.length > 0) {
@@ -242,7 +294,7 @@ function hexToRgb(hex) {
 // ─── CHARTS & DASHBOARD EXTENSIONS ────────────────────────────────────────────
 function SimplePieChart({ data, size = 160 }) {
   if (!data || data.length === 0 || data.every(d => d.value === 0)) {
-    return <div style={{ width: size, height: size, borderRadius: "50%", background: "#F3F4F6", display: "flex", alignItems: "center", justifyContent: "center", color: "#9CA3AF", fontSize: 12 }}>No Data</div>;
+    return <div style={{ width: size, height: size, borderRadius: "50%", background: "var(--hover-bg)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-light)", fontSize: 12 }}>No Data</div>;
   }
   
   const total = data.reduce((s, d) => s + d.value, 0);
@@ -258,16 +310,16 @@ function SimplePieChart({ data, size = 160 }) {
       <div style={{ width: size, height: size, borderRadius: "50%", background: `conic-gradient(${gradient})`, boxShadow: "0 4px 10px rgba(0, 0, 0, 0.08)" }} />
       <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 160 }}>
         {data.filter(d => d.value > 0).sort((a,b) => b.value - a.value).map((d, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13, background: "#F9FAFB", padding: "6px 10px", borderRadius: 8 }}>
+          <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13, background: "var(--input-bg)", padding: "6px 10px", borderRadius: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ width: 12, height: 12, borderRadius: 3, background: d.color }} />
-              <span style={{ color: "#4B5563", fontWeight: 600 }}>{d.label}</span>
+              <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>{d.label}</span>
             </div>
-            <strong style={{ color: "#111827" }}>{fmt(d.value)}</strong>
+            <strong style={{ color: "var(--text-main)" }}>{fmt(d.value)}</strong>
           </div>
         ))}
         {/* ADDED TOTAL SECTION */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, background: "#EEF2FF", padding: "8px 10px", borderRadius: 8, marginTop: 4, border: "1px solid #C7D2FE" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, background: "rgba(30, 64, 175, 0.1)", padding: "8px 10px", borderRadius: 8, marginTop: 4, border: "1px solid rgba(30, 64, 175, 0.2)" }}>
           <span style={{ color: "#1E40AF", fontWeight: 800 }}>Total</span>
           <strong style={{ color: "#1E40AF", fontWeight: 800 }}>{fmt(total)}</strong>
         </div>
@@ -276,14 +328,16 @@ function SimplePieChart({ data, size = 160 }) {
   );
 }
 
-function LocationExpenseSummary({ expenses, customers, allMonths }) {
+function LocationExpenseSummary({ expenses, customers, allMonths, isAdmin, engineers }) {
   const [filterMonth, setFilterMonth] = useState("all");
   const [selLoc, setSelLoc] = useState("all");
+  const [selEng, setSelEng] = useState("all");
 
-  // ONLY show APPROVED expenses in the Pie Chart summaries
+  // Filter based on month, approval status, and selected engineer (for admin)
   const filtered = expenses.filter(e => 
     (filterMonth === "all" || e.date.startsWith(filterMonth)) && 
-    e.status === "approved"
+    e.status === "approved" &&
+    (selEng === "all" || e.engineerId === selEng)
   );
   
   const getLoc = (exp) => {
@@ -311,9 +365,15 @@ function LocationExpenseSummary({ expenses, customers, allMonths }) {
   return (
     <Card style={{ marginBottom: 24 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
-        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📍 Approved Expenses Analysis</h3>
-        <div style={{ display: "flex", gap: 10 }}>
-          <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1.5px solid #E5E7EB", fontSize: 14, fontFamily: "'DM Sans', sans-serif", width: "auto" }}>
+        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "var(--text-main)" }}>📍 Approved Expenses Analysis</h3>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {isAdmin && engineers && (
+            <select value={selEng} onChange={e => setSelEng(e.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1.5px solid var(--border)", background: "var(--input-bg)", color: "var(--text-main)", fontSize: 14 }}>
+              <option value="all">All Engineers</option>
+              {engineers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          )}
+          <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1.5px solid var(--border)", background: "var(--input-bg)", color: "var(--text-main)", fontSize: 14 }}>
             <option value="all">All Months</option>
             {allMonths.map(m => <option key={m} value={m}>{new Date(m + "-01").toLocaleString("en-IN", { month: "short", year: "numeric" })}</option>)}
           </select>
@@ -321,15 +381,15 @@ function LocationExpenseSummary({ expenses, customers, allMonths }) {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 24 }}>
-        <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#374151", marginBottom: 16, textAlign: "center" }}>Expense Share by Location</div>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)", marginBottom: 16, textAlign: "center" }}>Expense Share by Location</div>
           <SimplePieChart data={locData} />
         </div>
 
-        <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: 20 }}>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20 }}>
            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-             <div style={{ fontSize: 14, fontWeight: 700, color: "#374151" }}>Category Breakdown</div>
-             <select value={selLoc} onChange={e => setSelLoc(e.target.value)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #D1D5DB", fontSize: 12 }}>
+             <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)" }}>Category Breakdown</div>
+             <select value={selLoc} onChange={e => setSelLoc(e.target.value)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--input-bg)", color: "var(--text-main)", fontSize: 12 }}>
                <option value="all">All Locations</option>
                {locations.map(l => <option key={l} value={l}>{l}</option>)}
              </select>
@@ -347,7 +407,7 @@ function Avatar({ user, size = 36 }) {
     <div style={{
       width: size, height: size, borderRadius: "50%", background: "linear-gradient(135deg, #1E40AF, #7C3AED)",
       display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700,
-      fontSize: size * 0.35, fontFamily: "'DM Mono', monospace", flexShrink: 0,
+      fontSize: size * 0.35, flexShrink: 0,
     }}>{user.avatar || initials(user.name)}</div>
   );
 }
@@ -357,27 +417,27 @@ function Badge({ status }) {
   return (
     <span style={{
       padding: "2px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, color: c.color,
-      background: c.bg, fontFamily: "'DM Mono', monospace", letterSpacing: "0.04em", textTransform: "uppercase",
+      background: c.bg, letterSpacing: "0.04em", textTransform: "uppercase",
     }}>{c.label}</span>
   );
 }
 
-function Card({ children, style }) {
-  return <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #E5E7EB", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", padding: 24, ...style }}>{children}</div>;
+function Card({ children, style, onClick }) {
+  return <div onClick={onClick} style={{ background: "var(--bg-card)", borderRadius: 16, border: "1px solid var(--border)", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", padding: 24, color: "var(--text-main)", ...style }}>{children}</div>;
 }
 
 function Button({ children, onClick, variant = "primary", disabled, style, small }) {
   const base = {
     border: "none", borderRadius: small ? 8 : 10, cursor: disabled ? "not-allowed" : "pointer",
-    fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: small ? 12 : 14, padding: small ? "6px 14px" : "10px 22px",
+    fontWeight: 600, fontSize: small ? 12 : 14, padding: small ? "6px 14px" : "10px 22px",
     transition: "all 0.15s", opacity: disabled ? 0.5 : 1, display: "inline-flex", alignItems: "center", gap: 6, ...style,
   };
   const variants = {
     primary: { background: "linear-gradient(135deg,#1E40AF,#3B82F6)", color: "#fff" },
     success: { background: "linear-gradient(135deg,#065F46,#10B981)", color: "#fff" },
     danger: { background: "linear-gradient(135deg,#991B1B,#EF4444)", color: "#fff" },
-    ghost: { background: "#F3F4F6", color: "#374151" },
-    outline: { background: "#fff", color: "#1E40AF", border: "1.5px solid #1E40AF" },
+    ghost: { background: "transparent", color: "var(--text-main)" },
+    outline: { background: "transparent", color: "var(--text-main)", border: "1.5px solid var(--border)" },
     warning: { background: "linear-gradient(135deg,#92400E,#F59E0B)", color: "#fff" },
     teal: { background: "linear-gradient(135deg,#0F766E,#14B8A6)", color: "#fff" },
     purple: { background: "linear-gradient(135deg,#5B21B6,#8B5CF6)", color: "#fff" },
@@ -385,10 +445,10 @@ function Button({ children, onClick, variant = "primary", disabled, style, small
   return <button style={{ ...base, ...variants[variant] }} onClick={onClick} disabled={disabled}>{children}</button>;
 }
 
-const inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 10, border: "1.5px solid #E5E7EB", fontSize: 14, fontFamily: "'DM Sans', sans-serif", background: "#F9FAFB", boxSizing: "border-box" };
+const inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 10, border: "1.5px solid var(--border)", fontSize: 14, background: "var(--input-bg)", color: "var(--text-main)", boxSizing: "border-box" };
 
 function Field({ label, children }) {
-  return <div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#6B7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</label>{children}</div>;
+  return <div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</label>{children}</div>;
 }
 
 function CustomerDropdown({ value, onChange, customers }) {
@@ -420,23 +480,23 @@ function CustomerDropdown({ value, onChange, customers }) {
           placeholder="Search or type customer name..."
           style={{ ...inputStyle, flex: 1 }}
         />
-        {search && <button onClick={clear} style={{ background: "none", border: "none", color: "#9CA3AF", cursor: "pointer", fontSize: 16, padding: "0 6px" }}>✕</button>}
+        {search && <button onClick={clear} style={{ background: "none", border: "none", color: "var(--text-light)", cursor: "pointer", fontSize: 16, padding: "0 6px" }}>✕</button>}
       </div>
       {open && filtered.length > 0 && (
-        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1.5px solid #E5E7EB", borderRadius: 10, zIndex: 500, maxHeight: 200, overflowY: "auto", boxShadow: "0 4px 16px rgba(0,0,0,0.12)", marginTop: 4 }}>
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "var(--bg-card)", border: "1.5px solid var(--border)", borderRadius: 10, zIndex: 500, maxHeight: 200, overflowY: "auto", boxShadow: "0 4px 16px rgba(0,0,0,0.12)", marginTop: 4 }}>
           {filtered.map(c => (
-            <div key={c.id} onClick={() => select(c)} style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #F3F4F6", display: "flex", justifyContent: "space-between" }}
-              onMouseEnter={e => e.currentTarget.style.background = "#EFF6FF"}
+            <div key={c.id} onClick={() => select(c)} style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid var(--hover-bg)", display: "flex", justifyContent: "space-between", color: "var(--text-main)" }}
+              onMouseEnter={e => e.currentTarget.style.background = "var(--hover-bg)"}
               onMouseLeave={e => e.currentTarget.style.background = ""}
             >
               <span style={{ fontWeight: 600, fontSize: 13 }}>{c.name}</span>
-              {c.code && <span style={{ fontSize: 11, color: "#9CA3AF" }}>{c.code}</span>}
+              {c.code && <span style={{ fontSize: 11, color: "var(--text-light)" }}>{c.code}</span>}
             </div>
           ))}
         </div>
       )}
       {open && search && filtered.length === 0 && (
-        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1.5px solid #E5E7EB", borderRadius: 10, zIndex: 500, padding: "10px 14px", color: "#9CA3AF", fontSize: 13, marginTop: 4 }}>
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "var(--bg-card)", border: "1.5px solid var(--border)", borderRadius: 10, zIndex: 500, padding: "10px 14px", color: "var(--text-light)", fontSize: 13, marginTop: 4 }}>
           No match — "{search}" will be used as-is
         </div>
       )}
@@ -461,7 +521,7 @@ function DateRangeFilter({ filter, onChange, allMonths }) {
       {filter.mode === "custom" && (
         <>
           <input type="date" value={filter.from} onChange={e => onChange({ ...filter, from: e.target.value })} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }} />
-          <span style={{ color: "#6B7280", fontSize: 13 }}>to</span>
+          <span style={{ color: "var(--text-muted)", fontSize: 13 }}>to</span>
           <input type="date" value={filter.to} onChange={e => onChange({ ...filter, to: e.target.value })} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }} />
         </>
       )}
@@ -482,10 +542,9 @@ function Login({ onLogin, users }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0F172A 0%, #1E1B4B 50%, #0F172A 100%)", fontFamily: "'DM Sans', sans-serif" }}>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0F172A 0%, #1E1B4B 50%, #0F172A 100%)" }}>
       <div style={{ textAlign: "center", width: "100%", maxWidth: 420, padding: "0 24px" }}>
         
-        {/* ADDED PROPER LOGO WITH CSS FALLBACK */}
         <div style={{ position: "relative", width: 100, height: 100, margin: "0 auto 16px" }}>
           <div style={{ position: "absolute", inset: 0, borderRadius: 20, background: "linear-gradient(135deg, #1E40AF, #7C3AED)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 40, fontWeight: 800 }}>FE</div>
           <img src="exp pro.png" alt="FieldExpense Pro Logo" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", borderRadius: 20, objectFit: "contain", background: "#fff", padding: 4 }} onError={(e) => e.target.style.display='none'} />
@@ -494,13 +553,13 @@ function Login({ onLogin, users }) {
         <h1 style={{ color: "#fff", fontSize: 28, fontWeight: 800, margin: "0 0 4px" }}>FieldExpense Pro</h1>
         <p style={{ color: "#94A3B8", fontSize: 14, margin: "0 0 32px" }}>Field Engineer Expense Management</p>
         <Card>
-          <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#6B7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>User ID</label>
+          <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>User ID</label>
             <select value={id} onChange={e => setId(e.target.value)} style={inputStyle}>
               <option value="">Select user...</option>
               {allUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
             </select>
           </div>
-          <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#6B7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Password</label>
+          <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Password</label>
             <input type="password" value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === "Enter" && handle()} placeholder="Enter password" style={inputStyle} />
           </div>
           {err && <p style={{ color: "#EF4444", fontSize: 13, margin: "0 0 12px" }}>{err}</p>}
@@ -530,17 +589,17 @@ function AdminDatabase({ users, customers, onSaveUser, onDeleteUser, onSaveCusto
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800 }}>🗄️ Database Management</h2>
-          <p style={{ margin: 0, fontSize: 13, color: "#6B7280" }}>Manage engineers, login credentials and customer list</p>
+          <h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800, color: "var(--text-main)" }}>🗄️ Database Management</h2>
+          <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>Manage engineers, login credentials and customer list</p>
         </div>
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
         {[{ id: "engineers", label: "👷 Engineers", count: engineers.length }, { id: "customers", label: "👥 Customers", count: customers.length }].map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
-            padding: "8px 18px", borderRadius: 10, border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 13,
-            background: activeTab === t.id ? "linear-gradient(135deg,#1E40AF,#3B82F6)" : "#F3F4F6",
-            color: activeTab === t.id ? "#fff" : "#374151"
+            padding: "8px 18px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 13,
+            background: activeTab === t.id ? "linear-gradient(135deg,#1E40AF,#3B82F6)" : "var(--hover-bg)",
+            color: activeTab === t.id ? "#fff" : "var(--text-main)"
           }}>{t.label} <span style={{ opacity: 0.7, fontSize: 11 }}>({t.count})</span></button>
         ))}
       </div>
@@ -551,15 +610,15 @@ function AdminDatabase({ users, customers, onSaveUser, onDeleteUser, onSaveCusto
             <Button onClick={() => { setEditEng(null); setShowEngForm(true); }}>+ Add Engineer</Button>
           </div>
           <Card>
-            {engineers.length === 0 && <div style={{ textAlign: "center", padding: "40px 0", color: "#9CA3AF" }}>No engineers yet. Add one above.</div>}
+            {engineers.length === 0 && <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-light)" }}>No engineers yet. Add one above.</div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {engineers.map(eng => (
-                <div key={eng.id} style={{ padding: "14px 16px", background: "#FAFAFA", borderRadius: 12, border: "1px solid #F3F4F6", display: "flex", alignItems: "center", gap: 14 }}>
+                <div key={eng.id} style={{ padding: "14px 16px", background: "var(--input-bg)", borderRadius: 12, border: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 14 }}>
                   <Avatar user={eng} size={40} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{eng.name}</div>
-                    <div style={{ fontSize: 12, color: "#9CA3AF" }}>{eng.department || "—"} · ID: {eng.id}</div>
-                    <div style={{ fontSize: 12, color: "#9CA3AF" }}>Password: {"•".repeat(eng.password?.length || 6)}</div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-main)" }}>{eng.name}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-light)" }}>{eng.department || "—"} · ID: {eng.id}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-light)" }}>Password: {"•".repeat(eng.password?.length || 6)}</div>
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <Button small variant="outline" onClick={() => { setEditEng(eng); setShowEngForm(true); }}>✏️ Edit</Button>
@@ -579,16 +638,16 @@ function AdminDatabase({ users, customers, onSaveUser, onDeleteUser, onSaveCusto
             <Button onClick={() => { setEditCust(null); setShowCustForm(true); }}>+ Add Customer</Button>
           </div>
           <Card>
-            {filteredCustomers.length === 0 && <div style={{ textAlign: "center", padding: "40px 0", color: "#9CA3AF" }}>No customers found.</div>}
+            {filteredCustomers.length === 0 && <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-light)" }}>No customers found.</div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {filteredCustomers.map(c => (
-                <div key={c.id} style={{ padding: "12px 16px", background: "#FAFAFA", borderRadius: 10, border: "1px solid #F3F4F6", display: "flex", alignItems: "center", gap: 14 }}>
+                <div key={c.id} style={{ padding: "12px 16px", background: "var(--input-bg)", borderRadius: 10, border: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 14 }}>
                   <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#7C3AED,#5B21B6)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
                     {c.name[0].toUpperCase()}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div>
-                    <div style={{ fontSize: 12, color: "#9CA3AF" }}>{c.code ? `Code: ${c.code}` : ""}{c.location ? ` · ${c.location}` : ""}</div>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text-main)" }}>{c.name}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-light)" }}>{c.code ? `Code: ${c.code}` : ""}{c.location ? ` · ${c.location}` : ""}</div>
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <Button small variant="outline" onClick={() => { setEditCust(c); setShowCustForm(true); }}>✏️ Edit</Button>
@@ -631,20 +690,20 @@ function EngineerFormModal({ editItem, onSave, onClose, existingIds }) {
       <Card style={{ width: "100%", maxWidth: 440 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>👷 {editItem ? "Edit Engineer" : "Add Engineer"}</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--text-light)" }}>✕</button>
         </div>
         <Field label="Full Name"><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Arjun Menon" style={inputStyle} /></Field>
         <Field label="Department / Region"><input value={department} onChange={e => setDepartment(e.target.value)} placeholder="e.g. South Kerala" style={inputStyle} /></Field>
         <Field label="Password">
           <div style={{ display: "flex", gap: 6 }}>
             <input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="Set login password" style={{ ...inputStyle, flex: 1 }} />
-            <button onClick={() => setShowPw(!showPw)} style={{ background: "#F3F4F6", border: "none", borderRadius: 8, padding: "0 10px", cursor: "pointer", fontSize: 16 }}>{showPw ? "🙈" : "👁️"}</button>
+            <button onClick={() => setShowPw(!showPw)} style={{ background: "var(--hover-bg)", border: "none", borderRadius: 8, padding: "0 10px", cursor: "pointer", fontSize: 16 }}>{showPw ? "🙈" : "👁️"}</button>
           </div>
         </Field>
         {editItem && <div style={{ background: "#FEF3C7", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#92400E", marginBottom: 12 }}>⚠️ Engineer ID cannot be changed: <strong>{editItem.id}</strong></div>}
         {err && <p style={{ color: "#EF4444", fontSize: 13, margin: "0 0 12px" }}>{err}</p>}
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-          <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
           <Button onClick={submit} disabled={!name || !password} style={{ flex: 1 }}>{editItem ? "Update" : "Add Engineer"}</Button>
         </div>
       </Card>
@@ -669,7 +728,7 @@ function CustomerFormModal({ editItem, onSave, onClose }) {
       <Card style={{ width: "100%", maxWidth: 420 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>👥 {editItem ? "Edit Customer" : "Add Customer"}</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--text-light)" }}>✕</button>
         </div>
         <Field label="Customer Name *"><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. BSNL Kochi" style={inputStyle} /></Field>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -678,7 +737,7 @@ function CustomerFormModal({ editItem, onSave, onClose }) {
         </div>
         <Field label="Contact / Notes"><input value={contact} onChange={e => setContact(e.target.value)} placeholder="Contact person or notes" style={inputStyle} /></Field>
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-          <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
           <Button onClick={submit} disabled={!name} style={{ flex: 1 }}>{editItem ? "Update" : "Add Customer"}</Button>
         </div>
       </Card>
@@ -699,14 +758,24 @@ function ExpenseReportModal({ engineers, expenses, receivedFunds, requests, onCl
     if (dateTo && e.date > dateTo) return false;
     return true;
   });
+  
+  const filteredReqs = requests.filter(r => {
+    if (selEng && r.engineerId !== selEng) return false;
+    if (dateFrom && r.date < dateFrom) return false;
+    if (dateTo && r.date > dateTo) return false;
+    return true;
+  });
+
   const filteredFunds = receivedFunds.filter(f => {
     if (dateFrom && f.date < dateFrom) return false;
     if (dateTo && f.date > dateTo) return false;
     return true;
   });
+
   const totalReceived = filteredFunds.reduce((s, f) => s + f.amount, 0);
   const totalExp = filtered.reduce((s, e) => s + e.amount, 0);
   const approvedExp = filtered.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
+  const totalApprovedFunds = filteredReqs.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
 
   const download = async () => {
     setLoading(true);
@@ -719,11 +788,11 @@ function ExpenseReportModal({ engineers, expenses, receivedFunds, requests, onCl
       <Card style={{ width: "100%", maxWidth: 500 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📥 Download Expense Report</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--text-light)" }}>✕</button>
         </div>
         <Field label="Select Engineer">
           <select value={selEng} onChange={e => setSelEng(e.target.value)} style={inputStyle}>
-            <option value="">All Engineers</option>
+            <option value="">All Engineers (Overall Report)</option>
             {engineers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
         </Field>
@@ -732,25 +801,23 @@ function ExpenseReportModal({ engineers, expenses, receivedFunds, requests, onCl
           <Field label="Date To"><input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={inputStyle} /></Field>
         </div>
 
-        <div style={{ background: "#F9FAFB", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", marginBottom: 10 }}>Report Preview</div>
+        <div style={{ background: "var(--input-bg)", borderRadius: 12, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 10 }}>Report Preview</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {[
-              ["Engineer", engineer?.name || "All Engineers"],
+              ["Target", engineer?.name || "All Engineers"],
               ["Expenses in range", filtered.length + " entries"],
-              ["Total Received", fmt(totalReceived)],
-              ["Total Expenses", fmt(totalExp)],
-              ["Approved Expenses", fmt(approvedExp)],
-              ["Balance", fmt(totalReceived - approvedExp)],
+              engineer ? ["Total Approved Funds", fmt(totalApprovedFunds)] : ["Total Received Funds", fmt(totalReceived)],
+              engineer ? ["Approved Submitted Bills", fmt(approvedExp)] : ["Total Submitted Expenses", fmt(totalExp)],
+              engineer ? ["Remaining Balance", fmt(totalApprovedFunds - approvedExp)] : ["Overall Balance", fmt(totalReceived - approvedExp)],
             ].map(([k, v]) => (
-              <div key={k} style={{ fontSize: 12 }}><span style={{ color: "#9CA3AF" }}>{k}: </span><span style={{ fontWeight: 600, color: "#111827" }}>{v}</span></div>
+              <div key={k} style={{ fontSize: 12 }}><span style={{ color: "var(--text-light)" }}>{k}: </span><span style={{ fontWeight: 600, color: "var(--text-main)" }}>{v}</span></div>
             ))}
           </div>
-          <div style={{ marginTop: 8, fontSize: 11, color: "#9CA3AF" }}>📎 {filtered.filter(e => e.attachment).length} bill attachment(s) will be included</div>
         </div>
 
         <div style={{ display: "flex", gap: 10 }}>
-          <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
           <Button onClick={download} disabled={loading} variant="success" style={{ flex: 1 }}>{loading ? "⏳ Generating..." : "📥 Download PDF"}</Button>
         </div>
       </Card>
@@ -777,7 +844,7 @@ function ReceivedFundModal({ onSave, onClose, editItem }) {
       <Card style={{ width: "100%", maxWidth: 480, margin: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>💵 {editItem ? "Edit" : "Add"} Received Fund</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--text-light)" }}>✕</button>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Amount Received (₹)"><input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" style={inputStyle} /></Field>
@@ -790,7 +857,7 @@ function ReceivedFundModal({ onSave, onClose, editItem }) {
         </div>
         <Field label="Remarks (optional)"><textarea value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="Any additional notes..." rows={2} style={{ ...inputStyle, resize: "vertical" }} /></Field>
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-          <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
           <Button onClick={submit} disabled={!amount || !date || !purpose} style={{ flex: 1 }}>{editItem ? "Update" : "Add Fund"}</Button>
         </div>
       </Card>
@@ -806,12 +873,12 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject }) {
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
       <Card style={{ width: "100%", maxWidth: 420 }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18, fontWeight: 700 }}>Review {type === "request" ? "Fund Request" : "Expense"}</h3>
-        <div style={{ background: "#F9FAFB", padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 13, color: "#4B5563" }}>
+        <div style={{ background: "var(--input-bg)", padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 13, color: "var(--text-main)" }}>
           <strong>Engineer:</strong> {item.engineerName}<br />
           <strong>Reason:</strong> {item.reason || item.description}<br />
           {item.customer && <><strong>Customer:</strong> {item.customer}<br /></>}
           <strong>Date:</strong> {item.date}<br />
-          <strong>Original Amount:</strong> <span style={{ color: "#1E40AF", fontWeight: 700 }}>{fmt(item.amount)}</span>
+          <strong>Original Amount:</strong> <span style={{ color: "#3B82F6", fontWeight: 700 }}>{fmt(item.amount)}</span>
         </div>
         <Field label="Approved Amount (₹)"><input type="number" value={amount} onChange={e => setAmount(e.target.value)} style={inputStyle} /></Field>
         {amountChanged && (
@@ -823,7 +890,7 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject }) {
           <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder="Add a note or reason..." rows={3} style={{ ...inputStyle, resize: "vertical" }} />
         </Field>
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-          <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
           <Button onClick={() => { onReject(item.id, comment); onClose(); }} variant="danger" style={{ flex: 1 }}>Reject</Button>
           <Button onClick={() => { onApprove(item.id, parseFloat(amount), comment, item.amount); onClose(); }} variant="success" disabled={amountChanged && !comment.trim()} style={{ flex: 1 }}>Approve</Button>
         </div>
@@ -851,7 +918,7 @@ function FundRequestForm({ user, onSubmit, onClose, customers }) {
       id: uid(), engineerId: user.id, engineerName: user.name, 
       amount: totalAmount, reason: `${reason} (${breakdownText})`, 
       breakdown, category: "multiple", customer, 
-      status: "pending", date: today(), type: "fund_request" 
+      status: "pending", date: today(), createdAt: Date.now(), type: "fund_request" 
     });
     onClose();
   };
@@ -861,26 +928,26 @@ function FundRequestForm({ user, onSubmit, onClose, customers }) {
       <Card style={{ width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>💰 Request Funds</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--text-light)" }}>✕</button>
         </div>
         
         <Field label="Customer (optional)">
           <CustomerDropdown value={customer} onChange={setCustomer} customers={customers} />
         </Field>
         
-        <div style={{ background: "#F9FAFB", padding: 16, borderRadius: 12, marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#6B7280", marginBottom: 10, textTransform: "uppercase" }}>Expense Breakdown</label>
+        <div style={{ background: "var(--input-bg)", padding: 16, borderRadius: 12, marginBottom: 14 }}>
+          <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--text-muted)", marginBottom: 10, textTransform: "uppercase" }}>Expense Breakdown</label>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             {CATEGORIES.map(c => (
               <div key={c.id}>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginBottom: 4, color: "#4B5563" }}>{c.icon} {c.label}</label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginBottom: 4, color: "var(--text-main)" }}>{c.icon} {c.label}</label>
                 <input type="number" placeholder="0.00" value={breakdown[c.id] || ""} onChange={e => handleAmountChange(c.id, e.target.value)} style={inputStyle} />
               </div>
             ))}
           </div>
-          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #D1D5DB", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontWeight: 600, fontSize: 14 }}>Total Amount:</span>
-            <span style={{ fontWeight: 800, fontSize: 18, color: "#1E40AF" }}>{fmt(totalAmount)}</span>
+            <span style={{ fontWeight: 800, fontSize: 18, color: "#3B82F6" }}>{fmt(totalAmount)}</span>
           </div>
         </div>
 
@@ -889,7 +956,7 @@ function FundRequestForm({ user, onSubmit, onClose, customers }) {
         </Field>
         
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-          <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
           <Button onClick={submit} disabled={totalAmount <= 0 || !reason} style={{ flex: 1 }}>Submit Request</Button>
         </div>
       </Card>
@@ -924,7 +991,7 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
     onSubmit({
       id: editItem?.id || uid(), engineerId: user.id, engineerName: user.name,
       amount: parseFloat(amount), category, description, date, attachment, attachName,
-      customer, type: "expense", status: "pending", editLog: editItem?.editLog || [],
+      customer, type: "expense", status: "pending", createdAt: editItem?.createdAt || Date.now(), editLog: editItem?.editLog || [],
     });
     onClose();
   };
@@ -936,9 +1003,11 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
       <Card style={{ width: "100%", maxWidth: 500, margin: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{editItem ? "✏️ Edit Expense" : "🧾 Add Expense"}</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9CA3AF" }}>✕</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--text-light)" }}>✕</button>
         </div>
-        <div style={{ background: "#EFF6FF", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13 }}>Available Balance: <strong style={{ color: "#1E40AF" }}>{fmt(availableBalance)}</strong></div>
+        <div style={{ background: "rgba(59, 130, 246, 0.1)", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, border: "1px solid rgba(59, 130, 246, 0.2)" }}>
+          Available Balance: <strong style={{ color: "#3B82F6" }}>{fmt(availableBalance)}</strong>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Category">
             <select value={category} onChange={e => setCategory(e.target.value)} style={inputStyle}>
@@ -956,13 +1025,13 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
         </Field>
         <Field label="Description"><input value={description} onChange={e => setDescription(e.target.value)} placeholder="What was this expense for?" style={inputStyle} /></Field>
         <Field label="Attachment (Camera/Bill)">
-          <div onClick={() => fileRef.current.click()} style={{ border: `2px dashed ${attachment ? "#10B981" : "#D1D5DB"}`, borderRadius: 10, padding: "16px", textAlign: "center", cursor: "pointer", background: attachment ? "#F0FDF4" : "#F9FAFB" }}>
-            {attachment ? <><span style={{ fontSize: 22 }}>✅</span><br /><span style={{ fontSize: 13, color: "#065F46", fontWeight: 600 }}>{attachName}</span></> : <><span style={{ fontSize: 22 }}>📷</span><br /><span style={{ fontSize: 13, color: "#6B7280" }}>Tap to take photo or upload bill</span></>}
+          <div onClick={() => fileRef.current.click()} style={{ border: `2px dashed ${attachment ? "#10B981" : "var(--border)"}`, borderRadius: 10, padding: "16px", textAlign: "center", cursor: "pointer", background: attachment ? "rgba(16, 185, 129, 0.05)" : "var(--input-bg)" }}>
+            {attachment ? <><span style={{ fontSize: 22 }}>✅</span><br /><span style={{ fontSize: 13, color: "#10B981", fontWeight: 600 }}>{attachName}</span></> : <><span style={{ fontSize: 22 }}>📷</span><br /><span style={{ fontSize: 13, color: "var(--text-muted)" }}>Tap to take photo or upload bill</span></>}
           </div>
           <input ref={fileRef} type="file" accept="image/*,.pdf" capture="environment" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
         </Field>
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-          <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
           <Button onClick={submit} disabled={!amount || !description || !attachment || over} style={{ flex: 1 }}>{editItem ? "Update Expense" : "Submit Expense"}</Button>
         </div>
       </Card>
@@ -976,9 +1045,9 @@ function ConfirmDeleteModal({ item, itemType, onConfirm, onClose }) {
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
       <Card style={{ width: "100%", maxWidth: 360 }}>
         <h3 style={{ margin: "0 0 12px", fontSize: 18, fontWeight: 700 }}>🗑️ Delete</h3>
-        <p style={{ fontSize: 14, color: "#4B5563", margin: "0 0 20px" }}>Are you sure you want to delete the {label} by <strong>{item.engineerName || "Admin"}</strong>? This cannot be undone.</p>
+        <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 20px" }}>Are you sure you want to delete the {label} by <strong>{item.engineerName || "Admin"}</strong>? This cannot be undone.</p>
         <div style={{ display: "flex", gap: 10 }}>
-          <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>Cancel</Button>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
           <Button onClick={() => { onConfirm(item.id); onClose(); }} variant="danger" style={{ flex: 1 }}>Delete</Button>
         </div>
       </Card>
@@ -986,8 +1055,10 @@ function ConfirmDeleteModal({ item, itemType, onConfirm, onClose }) {
   );
 }
 
-function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, isAdmin, filter }) {
+function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, isAdmin, filter, isReadOnly }) {
   const cat = (id) => CATEGORIES.find(c => c.id === id) || CATEGORIES[3];
+  
+  // Enforce latest first sort by date then createdAt
   const filtered = expenses
     .filter(e => {
       if (!inRange(e.date, filter.dateRange || { mode: "all" })) return false;
@@ -995,9 +1066,12 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
       if (isAdmin && filter.engineer && e.engineerId !== filter.engineer) return false;
       return true;
     })
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
+    .sort((a, b) => {
+      const dateDiff = new Date(b.date || 0) - new Date(a.date || 0);
+      return dateDiff !== 0 ? dateDiff : (b.createdAt || 0) - (a.createdAt || 0);
+    });
 
-  if (!filtered.length) return <div style={{ textAlign: "center", padding: "40px 0", color: "#9CA3AF", fontSize: 14 }}>No expenses found.</div>;
+  if (!filtered.length) return <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-light)", fontSize: 14 }}>No expenses found.</div>;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1005,34 +1079,36 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
         const c = cat(exp.category);
         const hasEditLog = exp.editLog && exp.editLog.length > 0;
         return (
-          <div key={exp.id} style={{ padding: "14px 16px", background: "#FAFAFA", borderRadius: 12, border: "1px solid #F3F4F6" }}>
+          <div key={exp.id} style={{ padding: "14px 16px", background: "var(--input-bg)", borderRadius: 12, border: "1px solid var(--border)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <div style={{ width: 40, height: 40, borderRadius: 10, background: c.color + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{c.icon}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2, flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: 600, fontSize: 14, color: "#111827" }}>{exp.description}</span>
+                  <span style={{ fontWeight: 600, fontSize: 14, color: "var(--text-main)" }}>{exp.description}</span>
                   <Badge status={exp.status} />
                   {hasEditLog && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>EDITED</span>}
                 </div>
-                <div style={{ fontSize: 12, color: "#9CA3AF" }}>
+                <div style={{ fontSize: 12, color: "var(--text-light)" }}>
                   {c.label} · {exp.date}
                   {exp.customer && <> · <span style={{ color: "#7C3AED", fontWeight: 600 }}>👥 {exp.customer}</span></>}
-                  {isAdmin && <> · <span style={{ color: "#6B7280" }}>{exp.engineerName}</span></>}
+                  {isAdmin && <> · <span style={{ color: "var(--text-muted)" }}>{exp.engineerName}</span></>}
                 </div>
               </div>
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: "#EF4444" }}>-{fmt(exp.amount)}</div>
                 <div style={{ display: "flex", gap: 4, justifyContent: "flex-end", marginTop: 4, flexWrap: "wrap" }}>
-                  {exp.attachment && <Button small variant="ghost" onClick={() => onViewAttachment(exp)}>📎 Bill</Button>}
+                  {exp.attachment && <Button small variant="outline" onClick={() => onViewAttachment(exp)}>📎 Bill</Button>}
                   {isAdmin && exp.attachment && <Button small variant="ghost" onClick={() => downloadAttachment(exp)}>⬇️</Button>}
-                  {!isAdmin && exp.status === "pending" && <Button small variant="outline" onClick={() => onEdit(exp)}>Edit</Button>}
-                  {isAdmin && exp.status === "pending" && <Button small variant="primary" onClick={() => onReview(exp)}>Review</Button>}
-                  {isAdmin && <Button small variant="danger" onClick={() => onDelete(exp)}>🗑️</Button>}
+                  
+                  {/* Hide write actions if in Read Only Mode */}
+                  {!isReadOnly && !isAdmin && exp.status === "pending" && <Button small variant="outline" onClick={() => onEdit(exp)}>Edit</Button>}
+                  {!isReadOnly && isAdmin && exp.status === "pending" && <Button small variant="primary" onClick={() => onReview(exp)}>Review</Button>}
+                  {!isReadOnly && isAdmin && <Button small variant="danger" onClick={() => onDelete(exp)}>🗑️</Button>}
                 </div>
               </div>
             </div>
             {hasEditLog && (
-              <div style={{ marginTop: 10, borderTop: "1px solid #F3F4F6", paddingTop: 10 }}>
+              <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
                 {exp.editLog.map((entry, i) => (
                   <div key={i} style={{ fontSize: 12, color: "#78350F", background: "#FFFBEB", borderRadius: 6, padding: "6px 10px", marginBottom: 4, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                     <span>📝 <strong>{entry.date}</strong></span>
@@ -1049,7 +1125,8 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
   );
 }
 
-function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete }) {
+function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete, isReadOnly }) {
+  // Enforce latest first sort by date then createdAt
   const filtered = requests
     .filter(r => {
       if (!isAdmin && r.engineerId !== engineerId) return false;
@@ -1058,9 +1135,12 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
       if (isAdmin && filter.engineer && r.engineerId !== filter.engineer) return false;
       return true;
     })
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
+    .sort((a, b) => {
+      const dateDiff = new Date(b.date || 0) - new Date(a.date || 0);
+      return dateDiff !== 0 ? dateDiff : (b.createdAt || 0) - (a.createdAt || 0);
+    });
 
-  if (!filtered.length) return <div style={{ textAlign: "center", padding: "40px 0", color: "#9CA3AF", fontSize: 14 }}>No requests found.</div>;
+  if (!filtered.length) return <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-light)", fontSize: 14 }}>No requests found.</div>;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1068,37 +1148,35 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
         const c = CATEGORIES.find(c => c.id === req.category) || CATEGORIES[3];
         const hasEditLog = req.editLog && req.editLog.length > 0;
         
-        // CALC ORIGINAL AMOUNT FOR EDITED REQUESTS
         const originalAmt = hasEditLog && req.editLog[0].before !== undefined ? req.editLog[0].before : req.amount;
         const isEditedAmt = parseFloat(originalAmt) !== parseFloat(req.amount);
 
         return (
-          <div key={req.id} style={{ padding: "14px 16px", background: "#FAFAFA", borderRadius: 12, border: "1px solid #F3F4F6" }}>
+          <div key={req.id} style={{ padding: "14px 16px", background: "var(--input-bg)", borderRadius: 12, border: "1px solid var(--border)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{req.category === "multiple" ? "💸" : c.icon}</div>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: "rgba(59, 130, 246, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{req.category === "multiple" ? "💸" : c.icon}</div>
               <div style={{ flex: 1 }}>
                 
-                {/* DISPLAY BOTH REQUESTED AND APPROVED IF EDITED */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                   {isEditedAmt ? (
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#ECFDF5", padding: "4px 8px", borderRadius: 6, border: "1px dashed #34D399" }}>
-                      <span style={{ fontSize: 12, color: "#6B7280", textDecoration: "line-through" }}>Requested: {fmt(originalAmt)}</span>
-                      <span style={{ fontWeight: 800, fontSize: 15, color: "#065F46" }}>Approved: {fmt(req.amount)}</span>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", background: "rgba(16, 185, 129, 0.1)", padding: "4px 8px", borderRadius: 6, border: "1px dashed #34D399" }}>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)", textDecoration: "line-through" }}>Requested: {fmt(originalAmt)}</span>
+                      <span style={{ fontWeight: 800, fontSize: 15, color: "#10B981" }}>Approved: {fmt(req.amount)}</span>
                     </div>
                   ) : (
-                    <span style={{ fontWeight: 700, fontSize: 15, color: "#1E40AF" }}>{fmt(req.amount)}</span>
+                    <span style={{ fontWeight: 700, fontSize: 15, color: "#3B82F6" }}>{fmt(req.amount)}</span>
                   )}
                   <Badge status={req.status} />
                   {hasEditLog && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>EDITED</span>}
                 </div>
                 
-                <div style={{ fontSize: 13, color: "#6B7280" }}>{req.reason}</div>
+                <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{req.reason}</div>
                 {req.customer && <div style={{ fontSize: 12, color: "#7C3AED", fontWeight: 600, marginTop: 2 }}>👥 {req.customer}</div>}
-                {isAdmin && <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>By: {req.engineerName} · {req.date}</div>}
+                {isAdmin && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 2 }}>By: {req.engineerName} · {req.date}</div>}
               </div>
               <div style={{ flexShrink: 0, display: "flex", gap: 6 }}>
-                {isAdmin && req.status === "pending" && <Button small variant="primary" onClick={() => onReview(req)}>Review</Button>}
-                {isAdmin && <Button small variant="danger" onClick={() => onDelete(req)}>🗑️</Button>}
+                {!isReadOnly && isAdmin && req.status === "pending" && <Button small variant="primary" onClick={() => onReview(req)}>Review</Button>}
+                {!isReadOnly && isAdmin && <Button small variant="danger" onClick={() => onDelete(req)}>🗑️</Button>}
               </div>
             </div>
           </div>
@@ -1108,40 +1186,46 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
   );
 }
 
-function ReceivedFundList({ funds, onEdit, onDelete, filter }) {
+function ReceivedFundList({ funds, onEdit, onDelete, filter, isReadOnly }) {
+  // Enforce latest first sort by date then createdAt
   const filtered = funds
     .filter(f => inRange(f.date, filter.dateRange || { mode: "all" }))
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
+    .sort((a, b) => {
+      const dateDiff = new Date(b.date || 0) - new Date(a.date || 0);
+      return dateDiff !== 0 ? dateDiff : (b.createdAt || 0) - (a.createdAt || 0);
+    });
 
-  if (!filtered.length) return <div style={{ textAlign: "center", padding: "40px 0", color: "#9CA3AF", fontSize: 14 }}>No received funds found.</div>;
+  if (!filtered.length) return <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-light)", fontSize: 14 }}>No received funds found.</div>;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {filtered.map(f => (
-        <div key={f.id} style={{ padding: "14px 16px", background: "#FAFAFA", borderRadius: 12, border: "1px solid #F3F4F6", display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 10, background: "#F0FDF4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>💵</div>
+        <div key={f.id} style={{ padding: "14px 16px", background: "var(--input-bg)", borderRadius: 12, border: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: "rgba(16, 185, 129, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>💵</div>
           <div style={{ flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
-              <span style={{ fontWeight: 700, fontSize: 15, color: "#065F46" }}>{fmt(f.amount)}</span>
-              {f.pfrNo && <span style={{ fontSize: 11, background: "#EFF6FF", color: "#1E40AF", padding: "1px 8px", borderRadius: 10, fontWeight: 700 }}>PFR: {f.pfrNo}</span>}
+              <span style={{ fontWeight: 700, fontSize: 15, color: "#10B981" }}>{fmt(f.amount)}</span>
+              {f.pfrNo && <span style={{ fontSize: 11, background: "rgba(59, 130, 246, 0.1)", color: "#3B82F6", padding: "1px 8px", borderRadius: 10, fontWeight: 700 }}>PFR: {f.pfrNo}</span>}
             </div>
-            <div style={{ fontSize: 13, color: "#374151", fontWeight: 600 }}>{f.purpose}</div>
-            <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>
+            <div style={{ fontSize: 13, color: "var(--text-main)", fontWeight: 600 }}>{f.purpose}</div>
+            <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 2 }}>
               {f.date}{f.source ? ` · From: ${f.source}` : ""}
-              {f.remarks ? <span style={{ marginLeft: 8, color: "#6B7280", fontStyle: "italic" }}>{f.remarks}</span> : null}
+              {f.remarks ? <span style={{ marginLeft: 8, color: "var(--text-muted)", fontStyle: "italic" }}>{f.remarks}</span> : null}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-            <Button small variant="outline" onClick={() => onEdit(f)}>✏️ Edit</Button>
-            <Button small variant="danger" onClick={() => onDelete(f)}>🗑️</Button>
-          </div>
+          {!isReadOnly && (
+            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              <Button small variant="outline" onClick={() => onEdit(f)}>✏️ Edit</Button>
+              <Button small variant="danger" onClick={() => onDelete(f)}>🗑️</Button>
+            </div>
+          )}
         </div>
       ))}
     </div>
   );
 }
 
-function AdminSummary({ expenses, requests, receivedFunds, dashFilter, engineers }) {
+function AdminSummary({ expenses, requests, receivedFunds, dashFilter, engineers, onViewEngineer }) {
   const mReqs = requests.filter(r => inRange(r.date, dashFilter));
   const mExps = expenses.filter(e => inRange(e.date, dashFilter));
   const mFunds = receivedFunds.filter(f => inRange(f.date, dashFilter));
@@ -1154,7 +1238,7 @@ function AdminSummary({ expenses, requests, receivedFunds, dashFilter, engineers
 
   return (
     <>
-      <Card style={{ marginBottom: 20, background: "linear-gradient(135deg,#0F172A,#1E1B4B)", border: "none" }}>
+      <Card style={{ marginBottom: 20, background: "linear-gradient(135deg,#0F172A,#1E1B4B)", border: "none", color: "#fff" }}>
         <div style={{ display: "flex", justifyContent: "space-around", alignItems: "center", flexWrap: "wrap", gap: 16, marginBottom: totalReceived > 0 ? 16 : 0 }}>
           {[
             { label: "Received Fund", value: fmt(totalReceived), color: "#34D399" },
@@ -1186,16 +1270,19 @@ function AdminSummary({ expenses, requests, receivedFunds, dashFilter, engineers
           const pendingBills = engExps.filter(e => e.status === "pending").reduce((s, e) => s + e.amount, 0);
           const bal = funds - approvedBills;
           return (
-            <Card key={eng.id} style={{ padding: 16 }}>
+            <Card key={eng.id} style={{ padding: 16, cursor: "pointer", transition: "transform 0.15s" }} onClick={() => onViewEngineer(eng)} onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"} onMouseLeave={e => e.currentTarget.style.transform = "none"}>
               <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
                 <Avatar user={eng} size={36} />
-                <div><div style={{ fontWeight: 700, fontSize: 14 }}>{eng.name}</div><div style={{ fontSize: 11, color: "#9CA3AF" }}>{eng.department}</div></div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{eng.name}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-light)" }}>{eng.department}</div>
+                </div>
               </div>
               <div style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Funds Distributed</span><span style={{ color: "#10B981", fontWeight: 700 }}>{fmt(funds)}</span></div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Submitted Bills</span><span style={{ color: "#EF4444", fontWeight: 700 }}>{fmt(approvedBills)}</span></div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#6B7280" }}>Pending Bills</span><span style={{ color: "#F59E0B", fontWeight: 700 }}>{fmt(pendingBills)}</span></div>
-                <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, borderTop: "1px solid #F3F4F6" }}><span style={{ color: "#374151", fontWeight: 600 }}>Balance</span><span style={{ color: bal < 0 ? "#EF4444" : "#1E40AF", fontWeight: 700 }}>{fmt(bal)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Funds Distributed</span><span style={{ color: "#10B981", fontWeight: 700 }}>{fmt(funds)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Submitted Bills</span><span style={{ color: "#EF4444", fontWeight: 700 }}>{fmt(approvedBills)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Pending Bills</span><span style={{ color: "#F59E0B", fontWeight: 700 }}>{fmt(pendingBills)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, borderTop: "1px solid var(--border)" }}><span style={{ color: "var(--text-main)", fontWeight: 600 }}>Balance</span><span style={{ color: bal < 0 ? "#EF4444" : "#3B82F6", fontWeight: 700 }}>{fmt(bal)}</span></div>
               </div>
             </Card>
           );
@@ -1208,8 +1295,13 @@ function AdminSummary({ expenses, requests, receivedFunds, dashFilter, engineers
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [user, setUser] = useState(() => { const s = localStorage.getItem("activeUser"); return s ? JSON.parse(s) : null; });
-  const handleLogin = (u) => { localStorage.setItem("activeUser", JSON.stringify(u)); setUser(u); };
-  const handleLogout = () => { localStorage.removeItem("activeUser"); setUser(null); };
+  const [viewingAsEngineer, setViewingAsEngineer] = useState(null); // Admin read-only toggle
+  const isReadOnly = viewingAsEngineer !== null;
+  const activeUser = viewingAsEngineer || user;
+  const isAdmin = user?.role === "admin" && !viewingAsEngineer;
+
+  const handleLogin = (u) => { localStorage.setItem("activeUser", JSON.stringify(u)); setUser(u); setViewingAsEngineer(null); };
+  const handleLogout = () => { localStorage.removeItem("activeUser"); setUser(null); setViewingAsEngineer(null); };
 
   const [expenses, setExpenses] = useState([]);
   const [requests, setRequests] = useState([]);
@@ -1258,11 +1350,10 @@ export default function App() {
   const allUsers = dbUsers.length > 0 ? dbUsers : DEFAULT_USERS;
   const engineers = allUsers.filter(u => u.role === "engineer");
 
-  if (!user) return <Login onLogin={handleLogin} users={allUsers} />;
+  if (!user) return <><style>{GLOBAL_CSS}</style><Login onLogin={handleLogin} users={allUsers} /></>;
 
-  const isAdmin = user.role === "admin";
-  const myRequests = requests.filter(r => r.engineerId === user.id);
-  const myExpenses = expenses.filter(e => e.engineerId === user.id);
+  const myRequests = requests.filter(r => r.engineerId === activeUser.id);
+  const myExpenses = expenses.filter(e => e.engineerId === activeUser.id);
   const approvedFunds = myRequests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
   const approvedExpenses = myExpenses.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
   const availableBalance = approvedFunds - approvedExpenses;
@@ -1322,7 +1413,7 @@ export default function App() {
     { id: "requests", label: "Fund Requests", icon: "💰" },
     { id: "expenses", label: "My Expenses", icon: "🧾" },
   ];
-  const tabs = isAdmin ? adminTabs : engTabs;
+  const tabs = (user.role === "admin" && !viewingAsEngineer) ? adminTabs : engTabs;
 
   const tabFilterUI = (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
@@ -1341,12 +1432,13 @@ export default function App() {
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F8FAFC", fontFamily: "'DM Sans', sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-main)" }}>
+      <style>{GLOBAL_CSS}</style>
+
       {/* NAV */}
       <div style={{ background: "#0F172A", padding: "0 24px", position: "sticky", top: 0, zIndex: 100, overflowX: "auto" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", gap: 20, height: 58, minWidth: 600 }}>
           
-          {/* ADDED PROPER LOGO WITH CSS FALLBACK */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <div style={{ position: "relative", height: 36, width: 36, flexShrink: 0 }}>
               <div style={{ position: "absolute", inset: 0, borderRadius: 8, background: "linear-gradient(135deg, #1E40AF, #7C3AED)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 16, fontWeight: 800 }}>FE</div>
@@ -1358,20 +1450,28 @@ export default function App() {
           <div style={{ display: "flex", gap: 2, flex: 1 }}>
             {tabs.map(t => (
               <button key={t.id} onClick={() => { setTab(t.id); setFilterStatus("all"); setFilterEngineer(""); setTabDateFilter({ mode: "all", month: monthOf(today()), from: today(), to: today() }); }}
-                style={{ background: tab === t.id ? "rgba(59,130,246,0.2)" : "none", border: "none", borderRadius: 8, padding: "6px 12px", color: tab === t.id ? "#60A5FA" : "#94A3B8", cursor: "pointer", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
+                style={{ background: tab === t.id ? "rgba(59,130,246,0.2)" : "none", border: "none", borderRadius: 8, padding: "6px 12px", color: tab === t.id ? "#60A5FA" : "#94A3B8", cursor: "pointer", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, whiteSpace: "nowrap" }}>
                 {t.icon} {t.label}
               </button>
             ))}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <Avatar user={user} size={32} />
-            <button onClick={handleLogout} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 8, color: "#94A3B8", padding: "6px 12px", cursor: "pointer", fontSize: 12, fontFamily: "'DM Sans', sans-serif" }}>Sign out</button>
+            <button onClick={handleLogout} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 8, color: "#94A3B8", padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>Sign out</button>
           </div>
         </div>
       </div>
 
       {/* CONTENT */}
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 24px" }}>
+
+        {/* Read Only Admin Warning Banner */}
+        {isReadOnly && (
+          <div style={{ background: "#FEF2F2", border: "1px solid #F87171", color: "#991B1B", padding: "12px 20px", borderRadius: 12, marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 14 }}>⚠️ Viewing as <strong>{activeUser.name}</strong> (Read-Only Mode)</span>
+            <Button small variant="danger" onClick={() => { setViewingAsEngineer(null); setTab("dashboard"); }}>Exit View</Button>
+          </div>
+        )}
 
         {/* ── DASHBOARD ── */}
         {tab === "dashboard" && (
@@ -1382,7 +1482,7 @@ export default function App() {
                   <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Admin Dashboard</h2>
                   <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
                     <div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Filter Period</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Filter Period</div>
                       <DateRangeFilter filter={dashFilter} onChange={setDashFilter} allMonths={allMonths} />
                     </div>
                     <Button variant="success" onClick={() => setShowReportModal(true)}>📥 Expense Report</Button>
@@ -1395,54 +1495,71 @@ export default function App() {
                     const mE = expenses.filter(e => inRange(e.date, dashFilter));
                     const mF = receivedFunds.filter(f => inRange(f.date, dashFilter));
                     return [
-                      { label: "Received Fund", value: fmt(mF.reduce((s, f) => s + f.amount, 0)), icon: "💵", color: "#065F46" },
-                      { label: "Pending Fund Requests", value: mR.filter(r => r.status === "pending").length, icon: "⏳", color: "#D97706" },
+                      { label: "Received Fund", value: fmt(mF.reduce((s, f) => s + f.amount, 0)), icon: "💵", color: "#10B981" },
+                      { label: "Pending Fund Requests", value: mR.filter(r => r.status === "pending").length, icon: "⏳", color: "#F59E0B" },
                       { label: "Pending Expenses", value: mE.filter(e => e.status === "pending").length, icon: "📋", color: "#EF4444" },
-                      { label: "Total Distributed", value: fmt(mR.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0)), icon: "💰", color: "#1E40AF" },
+                      { label: "Total Distributed", value: fmt(mR.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0)), icon: "💰", color: "#3B82F6" },
                     ];
                   })().map(s => (
                     <Card key={s.label} style={{ padding: "18px 20px" }}>
                       <div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div>
                       <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div>
-                      <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>{s.label}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{s.label}</div>
                     </Card>
                   ))}
                 </div>
 
-                <LocationExpenseSummary expenses={expenses} customers={customers} allMonths={allMonths} />
-                <AdminSummary expenses={expenses} requests={requests} receivedFunds={receivedFunds} dashFilter={dashFilter} engineers={engineers} />
+                {/* Passed isAdmin and engineers so the component renders the dropdown */}
+                <LocationExpenseSummary expenses={expenses} customers={customers} allMonths={allMonths} isAdmin={isAdmin} engineers={engineers} />
+                <AdminSummary expenses={expenses} requests={requests} receivedFunds={receivedFunds} dashFilter={dashFilter} engineers={engineers} onViewEngineer={setViewingAsEngineer} />
               </>
             ) : (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 16, marginBottom: 24 }}>
-                  <div><h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800 }}>Welcome, {user.name} 👋</h2><p style={{ margin: 0, color: "#6B7280", fontSize: 14 }}>{user.department}</p></div>
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <Button onClick={() => setShowFundForm(true)} variant="outline">💰 Request Funds</Button>
-                    <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>
+                  <div>
+                    <h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800 }}>{isReadOnly ? `Profile: ${activeUser.name}` : `Welcome, ${activeUser.name} 👋`}</h2>
+                    <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 14 }}>{activeUser.department}</p>
                   </div>
+                  {!isReadOnly && (
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <Button onClick={() => setShowFundForm(true)} variant="outline">💰 Request Funds</Button>
+                      <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>
+                    </div>
+                  )}
                 </div>
                 
-                <LocationExpenseSummary expenses={myExpenses} customers={customers} allMonths={allMonths} />
-                
-                <Card style={{ marginBottom: 20 }}>
+                <Card style={{ marginBottom: 24 }}>
                   <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700 }}>📒 My Ledger</h3>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
                     {[
                       { label: "Approved Funds", value: fmt(approvedFunds), color: "#10B981", icon: "💰" },
                       { label: "Approved Expenses", value: fmt(approvedExpenses), color: "#EF4444", icon: "🧾" },
-                      { label: "Available Balance", value: fmt(availableBalance), color: availableBalance < 0 ? "#EF4444" : "#1E40AF", icon: "📊" },
+                      { label: "Available Balance", value: fmt(availableBalance), color: availableBalance < 0 ? "#EF4444" : "#3B82F6", icon: "📊" },
                     ].map(item => (
-                      <div key={item.label} style={{ background: "#F9FAFB", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
+                      <div key={item.label} style={{ background: "var(--input-bg)", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
                         <div style={{ fontSize: 22, marginBottom: 4 }}>{item.icon}</div>
                         <div style={{ fontSize: 18, fontWeight: 800, color: item.color }}>{item.value}</div>
-                        <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2 }}>{item.label}</div>
+                        <div style={{ fontSize: 11, color: "var(--text-light)", marginTop: 2 }}>{item.label}</div>
                       </div>
                     ))}
                   </div>
                 </Card>
+                
+                {/* MOVED: Pie chart is now strictly below My Ledger per request */}
+                <LocationExpenseSummary expenses={myExpenses} customers={customers} allMonths={allMonths} isAdmin={false} />
+
                 <Card>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}><h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Recent Expenses</h3><Button small variant="ghost" onClick={() => setTab("expenses")}>View all →</Button></div>
-                  <ExpenseList expenses={myExpenses.slice(0, 5)} onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }} onViewAttachment={setViewAttachment} onDelete={exp => { setDeleteItem(exp); setDeleteItemType("expense"); }} filter={{ dateRange: { mode: "all" }, status: "all" }} />
+                  
+                  {/* Latest first slice is done AFTER sort inside ExpenseList component. Using dummy large max count filter to cap it. */}
+                  <ExpenseList 
+                    expenses={myExpenses.sort((a,b) => new Date(b.date||0) - new Date(a.date||0)).slice(0, 5)} 
+                    onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }} 
+                    onViewAttachment={setViewAttachment} 
+                    onDelete={exp => { setDeleteItem(exp); setDeleteItemType("expense"); }} 
+                    filter={{ dateRange: { mode: "all" }, status: "all" }} 
+                    isReadOnly={isReadOnly}
+                  />
                 </Card>
               </>
             )}
@@ -1455,7 +1572,7 @@ export default function App() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
               <div>
                 <h2 style={{ margin: "0 0 2px", fontSize: 22, fontWeight: 800 }}>💵 Received Funds</h2>
-                <p style={{ margin: 0, fontSize: 13, color: "#6B7280" }}>Record incoming funds with date, purpose and PFR details</p>
+                <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>Record incoming funds with date, purpose and PFR details</p>
               </div>
               <Button variant="teal" onClick={() => { setEditReceivedFund(null); setShowReceivedFundModal(true); }}>+ Add Received Fund</Button>
             </div>
@@ -1467,15 +1584,15 @@ export default function App() {
                 const entries = filtered.length;
                 const latest = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
                 return [
-                  { label: "Total Received", value: fmt(total), icon: "💵", color: "#065F46" },
-                  { label: "Entries", value: entries, icon: "📋", color: "#1E40AF" },
-                  { label: "Latest Entry", value: latest ? latest.date : "—", icon: "📅", color: "#7C3AED" },
+                  { label: "Total Received", value: fmt(total), icon: "💵", color: "#10B981" },
+                  { label: "Entries", value: entries, icon: "📋", color: "#3B82F6" },
+                  { label: "Latest Entry", value: latest ? latest.date : "—", icon: "📅", color: "#8B5CF6" },
                 ];
               })().map(s => (
                 <Card key={s.label} style={{ padding: "16px 18px" }}>
                   <div style={{ fontSize: 22, marginBottom: 6 }}>{s.icon}</div>
                   <div style={{ fontSize: 18, fontWeight: 800, color: s.color }}>{s.value}</div>
-                  <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>{s.label}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 2 }}>{s.label}</div>
                 </Card>
               ))}
             </div>
@@ -1486,7 +1603,8 @@ export default function App() {
             <Card>
               <ReceivedFundList funds={receivedFunds} filter={{ dateRange: rfDateFilter }}
                 onEdit={f => { setEditReceivedFund(f); setShowReceivedFundModal(true); }}
-                onDelete={f => { setDeleteItem(f); setDeleteItemType("received"); }} />
+                onDelete={f => { setDeleteItem(f); setDeleteItemType("received"); }}
+                isReadOnly={isReadOnly} />
             </Card>
           </>
         )}
@@ -1496,14 +1614,15 @@ export default function App() {
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
               <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Fund Requests</h2>
-              {!isAdmin && <Button onClick={() => setShowFundForm(true)}>💰 New Request</Button>}
+              {!isAdmin && !isReadOnly && <Button onClick={() => setShowFundForm(true)}>💰 New Request</Button>}
             </div>
             {tabFilterUI}
             <Card>
-              <RequestList requests={requests} isAdmin={isAdmin} engineerId={user.id}
+              <RequestList requests={requests} isAdmin={isAdmin} engineerId={activeUser.id}
                 filter={{ dateRange: tabDateFilter, status: filterStatus, engineer: filterEngineer }}
                 onReview={req => setReviewItem(req)}
-                onDelete={req => { setDeleteItem(req); setDeleteItemType("request"); }} />
+                onDelete={req => { setDeleteItem(req); setDeleteItemType("request"); }} 
+                isReadOnly={isReadOnly} />
             </Card>
           </>
         )}
@@ -1513,7 +1632,7 @@ export default function App() {
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
               <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>{isAdmin ? "All Expenses" : "My Expenses"}</h2>
-              {!isAdmin && <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>}
+              {!isAdmin && !isReadOnly && <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>}
             </div>
             {tabFilterUI}
             <Card>
@@ -1523,6 +1642,7 @@ export default function App() {
                 onReview={exp => setReviewItem(exp)}
                 onDelete={exp => { setDeleteItem(exp); setDeleteItemType("expense"); }}
                 isAdmin={isAdmin}
+                isReadOnly={isReadOnly}
                 filter={{ dateRange: tabDateFilter, status: filterStatus, engineer: filterEngineer }} />
             </Card>
           </>
@@ -1539,18 +1659,18 @@ export default function App() {
       </div>
 
       {/* ── MODALS ── */}
-      {showFundForm && <FundRequestForm user={user} onSubmit={addRequest} onClose={() => setShowFundForm(false)} customers={customers} />}
-      {showExpenseForm && <ExpenseForm user={user} availableBalance={editExpense ? availableBalance + editExpense.amount : availableBalance} onSubmit={addExpense} onClose={() => { setShowExpenseForm(false); setEditExpense(null); }} editItem={editExpense} customers={customers} />}
-      {showReceivedFundModal && <ReceivedFundModal onSave={saveReceivedFund} onClose={() => { setShowReceivedFundModal(false); setEditReceivedFund(null); }} editItem={editReceivedFund} />}
-      {showReportModal && <ExpenseReportModal engineers={engineers} expenses={expenses} receivedFunds={receivedFunds} requests={requests} onClose={() => setShowReportModal(false)} />}
+      {showFundForm && !isReadOnly && <FundRequestForm user={activeUser} onSubmit={addRequest} onClose={() => setShowFundForm(false)} customers={customers} />}
+      {showExpenseForm && !isReadOnly && <ExpenseForm user={activeUser} availableBalance={editExpense ? availableBalance + editExpense.amount : availableBalance} onSubmit={addExpense} onClose={() => { setShowExpenseForm(false); setEditExpense(null); }} editItem={editExpense} customers={customers} />}
+      {showReceivedFundModal && isAdmin && <ReceivedFundModal onSave={saveReceivedFund} onClose={() => { setShowReceivedFundModal(false); setEditReceivedFund(null); }} editItem={editReceivedFund} />}
+      {showReportModal && isAdmin && <ExpenseReportModal engineers={engineers} expenses={expenses} receivedFunds={receivedFunds} requests={requests} onClose={() => setShowReportModal(false)} />}
 
-      {reviewItem && (
+      {reviewItem && !isReadOnly && (
         <AdminReviewModal item={reviewItem} type={reviewItem.type} onClose={() => setReviewItem(null)}
           onApprove={(id, amt, comment, origAmt) => approveItem(reviewItem.type === "expense" ? "expenses" : "requests", id, amt, comment, origAmt)}
           onReject={(id, comment) => rejectItem(reviewItem.type === "expense" ? "expenses" : "requests", id, comment)} />
       )}
 
-      {deleteItem && (
+      {deleteItem && !isReadOnly && (
         <ConfirmDeleteModal item={deleteItem} itemType={deleteItemType}
           onConfirm={(id) => {
             if (deleteItemType === "expense") deleteExpense(id);
@@ -1562,12 +1682,12 @@ export default function App() {
 
       {viewAttachment && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: 20 }}>
-          <div style={{ background: "#fff", borderRadius: 16, maxWidth: 700, width: "100%", maxHeight: "90vh", overflow: "auto" }}>
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid #E5E7EB", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ background: "var(--bg-card)", borderRadius: 16, maxWidth: 700, width: "100%", maxHeight: "90vh", overflow: "auto", color: "var(--text-main)" }}>
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <strong style={{ fontSize: 15 }}>{viewAttachment.attachName}</strong>
               <div style={{ display: "flex", gap: 10 }}>
                 <Button small variant="outline" onClick={() => downloadAttachment(viewAttachment)}>⬇️ Download</Button>
-                <button onClick={() => setViewAttachment(null)} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer" }}>✕</button>
+                <button onClick={() => setViewAttachment(null)} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "var(--text-light)" }}>✕</button>
               </div>
             </div>
             <div style={{ padding: 20, textAlign: "center" }}>
