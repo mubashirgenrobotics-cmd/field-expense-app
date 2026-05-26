@@ -113,6 +113,9 @@ function downloadAttachment(exp) {
 }
 
 async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, requests, dateFrom, dateTo }) {
+  // PDF-safe formatter (Helvetica does not support ₹)
+  const pdfFmt = (n) => "Rs. " + Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 });
+
   const filtered = expenses.filter(e => {
     if (engineer && e.engineerId !== engineer.id) return false;
     if (dateFrom && e.date < dateFrom) return false;
@@ -175,9 +178,9 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
     const balance = totalApprovedAmount - totalSubmittedApprovedBillAmount;
 
     summaryItems = [
-      ["Total Approved Amount (Funds)", fmt(totalApprovedAmount), "#10B981"],
-      ["Total Submitted Approved Bills", fmt(totalSubmittedApprovedBillAmount), "#EF4444"],
-      ["Remaining Balance", fmt(balance), balance < 0 ? "#EF4444" : "#1E40AF"],
+      ["Total Approved Amount (Funds)", pdfFmt(totalApprovedAmount), "#10B981"],
+      ["Total Submitted Approved Bills", pdfFmt(totalSubmittedApprovedBillAmount), "#EF4444"],
+      ["Remaining Balance", pdfFmt(balance), balance < 0 ? "#EF4444" : "#1E40AF"],
     ];
   } else {
     // Admin overall calculation
@@ -187,10 +190,10 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
     const balance = totalReceived - approvedExpenses;
 
     summaryItems = [
-      ["Total Received (period)", fmt(totalReceived), "#065F46"],
-      ["Total Submitted Expenses", fmt(totalExpenses), "#EF4444"],
-      ["Approved Expenses", fmt(approvedExpenses), "#10B981"],
-      ["Balance / Reimbursement", fmt(balance), balance < 0 ? "#EF4444" : "#1E40AF"],
+      ["Total Received (period)", pdfFmt(totalReceived), "#065F46"],
+      ["Total Submitted Expenses", pdfFmt(totalExpenses), "#EF4444"],
+      ["Approved Expenses", pdfFmt(approvedExpenses), "#10B981"],
+      ["Balance / Reimbursement", pdfFmt(balance), balance < 0 ? "#EF4444" : "#1E40AF"],
     ];
   }
 
@@ -230,7 +233,7 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
     pdf.text((exp.description || "").slice(0, 22), cols[1], y+4);
     pdf.text((CATEGORIES.find(c=>c.id===exp.category)?.label || "Other").slice(0,16), cols[2], y+4);
     pdf.text((exp.customer || "—").slice(0, 16), cols[3], y+4);
-    pdf.text(fmt(exp.amount), cols[4], y+4);
+    pdf.text(pdfFmt(exp.amount), cols[4], y+4);
     const sc = STATUS_CONFIG[exp.status] || STATUS_CONFIG.pending;
     const [sr, sg, sb] = hexToRgb(sc.color);
     pdf.setTextColor(sr, sg, sb);
@@ -257,14 +260,14 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
       pdf.setTextColor(255,255,255); pdf.setFontSize(10); pdf.setFont("helvetica", "bold");
       pdf.text(`Bill ${i+1} of ${withAttach.length}`, M, 11);
       pdf.setFont("helvetica", "normal"); pdf.setFontSize(8);
-      pdf.text(`${exp.description} · ${exp.date} · ${fmt(exp.amount)}`, W - M, 11, { align: "right" });
+      pdf.text(`${exp.description} · ${exp.date} · ${pdfFmt(exp.amount)}`, W - M, 11, { align: "right" });
 
       pdf.setFillColor(249, 250, 251);
       pdf.setDrawColor(229, 231, 235);
       pdf.roundedRect(M, 20, W-M*2, 22, 2, 2, "FD");
       pdf.setTextColor(107, 114, 128); pdf.setFontSize(8); pdf.setFont("helvetica", "normal");
       pdf.text(`Description: ${exp.description}`, M+4, 27);
-      pdf.text(`Date: ${exp.date}    Amount: ${fmt(exp.amount)}    Status: ${exp.status?.toUpperCase()}`, M+4, 33);
+      pdf.text(`Date: ${exp.date}    Amount: ${pdfFmt(exp.amount)}    Status: ${exp.status?.toUpperCase()}`, M+4, 33);
       pdf.text(`Category: ${CATEGORIES.find(c=>c.id===exp.category)?.label || "Other"}    Customer: ${exp.customer || "—"}`, M+4, 39);
 
       try {
