@@ -368,7 +368,7 @@ function LocationExpenseSummary({ expenses, customers, allMonths, isAdmin, engin
   return (
     <Card style={{ marginBottom: 24 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
-        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "var(--text-main)" }}>📍 Approved Expenses Analysis</h3>
+        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "var(--text-main)" }}>📍 Expenses Analysis</h3>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {isAdmin && engineers && (
             <select value={selEng} onChange={e => setSelEng(e.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1.5px solid var(--border)", background: "var(--input-bg)", color: "var(--text-main)", fontSize: 14 }}>
