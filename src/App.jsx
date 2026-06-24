@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
-// ─── GLOBAL STYLES (FONTS & DARK MODE) ────────────────────────────────────────
+// ─── GLOBAL STYLES (FONTS & DARK MODE & MOBILE COMPACT) ──────────────────────
 const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
@@ -33,6 +33,14 @@ const GLOBAL_CSS = `
   * {
     font-family: 'Plus Jakarta Sans', -apple-system, sans-serif !important;
     letter-spacing: -0.01em;
+  }
+
+  /* MOBILE COMPACT STYLES */
+  @media (max-width: 640px) {
+    div[style*="padding: 24px"] { padding: 16px !important; }
+    div[style*="padding: 16px"] { padding: 12px !important; }
+    div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+    input, select, textarea { font-size: 16px !important; } /* Prevent iOS zoom */
   }
 `;
 
@@ -113,7 +121,6 @@ function downloadAttachment(exp) {
 }
 
 async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, requests, dateFrom, dateTo }) {
-  // PDF-safe formatter (Helvetica does not support ₹)
   const pdfFmt = (n) => "Rs. " + Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 });
 
   const filtered = expenses.filter(e => {
@@ -171,10 +178,9 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
   let summaryItems = [];
   
   if (engineer) {
-    // Engineer-specific calculation requested
     const totalApprovedAmount = filteredReqs.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
     const approvedExpenses = filtered.filter(e => e.status === "approved");
-    const totalSubmittedApprovedBillAmount = approvedExpenses.reduce((s, e) => s + e.amount, 0); // All approved bills
+    const totalSubmittedApprovedBillAmount = approvedExpenses.reduce((s, e) => s + e.amount, 0); 
     const balance = totalApprovedAmount - totalSubmittedApprovedBillAmount;
 
     summaryItems = [
@@ -183,7 +189,6 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
       ["Remaining Balance", pdfFmt(balance), balance < 0 ? "#EF4444" : "#1E40AF"],
     ];
   } else {
-    // Admin overall calculation
     const totalReceived = filteredFunds.reduce((s, f) => s + f.amount, 0);
     const totalExpenses = filtered.reduce((s, e) => s + e.amount, 0);
     const approvedExpenses = filtered.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
@@ -296,7 +301,6 @@ function hexToRgb(hex) {
 
 // ─── NOTIFICATION SYSTEM ──────────────────────────────────────────────────────
 
-// Request browser push permission
 async function requestNotifPermission() {
   if (!("Notification" in window)) return "unsupported";
   if (Notification.permission === "granted") return "granted";
@@ -305,23 +309,21 @@ async function requestNotifPermission() {
   return result;
 }
 
-// Fire a native browser push notification
 function sendBrowserNotif(title, body, icon = "📢") {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   try {
     new Notification(title, { body, icon: "/exp pro.png", badge: "/exp pro.png", tag: title + body });
-  } catch (e) {
-    // Some mobile browsers don't support new Notification() outside SW
-  }
+  } catch (e) { }
 }
 
-// In-app Toast component
-function ToastContainer({ toasts, onDismiss }) {
+function ToastContainer({ toasts, onDismiss, onToastClick }) {
   if (!toasts.length) return null;
   return (
     <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, display: "flex", flexDirection: "column", gap: 10, maxWidth: 360 }}>
       {toasts.map(t => (
-        <div key={t.id} style={{
+        <div key={t.id} 
+          onClick={() => onToastClick(t)} 
+          style={{
           background: t.type === "success" ? "#064E3B" : t.type === "error" ? "#7F1D1D" : t.type === "warning" ? "#78350F" : "#1E3A5F",
           color: "#fff",
           borderRadius: 14,
@@ -332,13 +334,14 @@ function ToastContainer({ toasts, onDismiss }) {
           gap: 12,
           animation: "slideInRight 0.3s ease",
           borderLeft: `4px solid ${t.type === "success" ? "#10B981" : t.type === "error" ? "#EF4444" : t.type === "warning" ? "#F59E0B" : "#3B82F6"}`,
+          cursor: "pointer"
         }}>
           <span style={{ fontSize: 20, flexShrink: 0 }}>{t.icon}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{t.title}</div>
             <div style={{ fontSize: 12, opacity: 0.85 }}>{t.body}</div>
           </div>
-          <button onClick={() => onDismiss(t.id)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 16, padding: 0, flexShrink: 0 }}>✕</button>
+          <button onClick={(e) => { e.stopPropagation(); onDismiss(t.id); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 16, padding: 0, flexShrink: 0 }}>✕</button>
         </div>
       ))}
       <style>{`@keyframes slideInRight { from { transform: translateX(110%); opacity:0 } to { transform: translateX(0); opacity:1 } }`}</style>
@@ -346,7 +349,6 @@ function ToastContainer({ toasts, onDismiss }) {
   );
 }
 
-// Notification Bell icon with badge
 function NotifBell({ count, onClick }) {
   return (
     <button onClick={onClick} title="Notifications" style={{ position: "relative", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 8, color: "#94A3B8", padding: "6px 10px", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center" }}>
@@ -358,7 +360,6 @@ function NotifBell({ count, onClick }) {
   );
 }
 
-// Notification history panel (slide-in drawer)
 function NotifPanel({ notifs, onClear, onClose }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 4000 }} onClick={onClose}>
@@ -389,38 +390,61 @@ function NotifPanel({ notifs, onClear, onClose }) {
   );
 }
 
-// Main notifications hook
 function useNotifications(user) {
   const [toasts, setToasts] = useState([]);
   const [notifHistory, setNotifHistory] = useState([]);
   const [unread, setUnread] = useState(0);
   const [permGranted, setPermGranted] = useState(Notification?.permission === "granted");
+  
+  // Audio configuration for looping alert sound
+  const audioRef = useRef(typeof Audio !== "undefined" ? new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg") : null);
 
-  // Ask for permission on mount
   useEffect(() => {
     if (user && Notification?.permission === "default") {
       requestNotifPermission().then(p => setPermGranted(p === "granted"));
     }
   }, [user]);
 
-  const addNotif = useCallback(({ title, body, icon = "📢", type = "info" }) => {
+  const addNotif = useCallback(({ title, body, icon = "📢", type = "info", actionTab = null }) => {
     const id = uid();
     const timeStr = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-    // Toast
-    setToasts(prev => [...prev.slice(-4), { id, title, body, icon, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000);
-    // History
-    setNotifHistory(prev => [{ id, title, body, icon, type, time: timeStr, read: false }, ...prev.slice(0, 49)]);
+    
+    setToasts(prev => [...prev.slice(-4), { id, title, body, icon, type, actionTab }]);
+    setNotifHistory(prev => [{ id, title, body, icon, type, time: timeStr, read: false, actionTab }, ...prev.slice(0, 49)]);
     setUnread(c => c + 1);
-    // Browser push
     sendBrowserNotif(title, body);
+
+    // Play looping sound
+    if (audioRef.current) {
+      audioRef.current.loop = true;
+      audioRef.current.play().catch(e => console.log("Audio autoplay blocked by browser", e));
+    }
+
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000);
+  }, []);
+
+  const stopSound = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
   }, []);
 
   const dismissToast = useCallback((id) => setToasts(prev => prev.filter(t => t.id !== id)), []);
-  const clearHistory = useCallback(() => { setNotifHistory([]); setUnread(0); }, []);
-  const markRead = useCallback(() => { setNotifHistory(prev => prev.map(n => ({ ...n, read: true }))); setUnread(0); }, []);
+  
+  const clearHistory = useCallback(() => { 
+    setNotifHistory([]); 
+    setUnread(0); 
+    stopSound();
+  }, [stopSound]);
+  
+  const markRead = useCallback(() => { 
+    setNotifHistory(prev => prev.map(n => ({ ...n, read: true }))); 
+    setUnread(0); 
+    stopSound();
+  }, [stopSound]);
 
-  return { toasts, dismissToast, notifHistory, unread, addNotif, clearHistory, markRead, permGranted };
+  return { toasts, dismissToast, notifHistory, unread, addNotif, clearHistory, markRead, permGranted, stopSound };
 }
 
 // ─── CHARTS & DASHBOARD EXTENSIONS ────────────────────────────────────────────
@@ -450,7 +474,6 @@ function SimplePieChart({ data, size = 160 }) {
             <strong style={{ color: "var(--text-main)" }}>{fmt(d.value)}</strong>
           </div>
         ))}
-        {/* ADDED TOTAL SECTION */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, background: "rgba(30, 64, 175, 0.1)", padding: "8px 10px", borderRadius: 8, marginTop: 4, border: "1px solid rgba(30, 64, 175, 0.2)" }}>
           <span style={{ color: "#1E40AF", fontWeight: 800 }}>Total</span>
           <strong style={{ color: "#1E40AF", fontWeight: 800 }}>{fmt(total)}</strong>
@@ -465,7 +488,6 @@ function LocationExpenseSummary({ expenses, customers, allMonths, isAdmin, engin
   const [selLoc, setSelLoc] = useState("all");
   const [selEng, setSelEng] = useState("all");
 
-  // Filter based on month, approval status, and selected engineer (for admin)
   const filtered = expenses.filter(e => 
     (filterMonth === "all" || e.date.startsWith(filterMonth)) && 
     e.status === "approved" &&
@@ -1043,7 +1065,7 @@ function FundRequestForm({ user, onSubmit, onClose, customers }) {
   const totalAmount = CATEGORIES.reduce((sum, cat) => sum + (breakdown[cat.id] || 0), 0);
 
   const submit = () => {
-    if (totalAmount <= 0 || !reason) return;
+    if (totalAmount <= 0 || !reason || !customer) return;
     const breakdownText = CATEGORIES.map(c => breakdown[c.id] ? `${c.label}: ${fmt(breakdown[c.id])}` : null).filter(Boolean).join(", ");
 
     onSubmit({ 
@@ -1063,7 +1085,7 @@ function FundRequestForm({ user, onSubmit, onClose, customers }) {
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--text-light)" }}>✕</button>
         </div>
         
-        <Field label="Customer (optional)">
+        <Field label="Customer *">
           <CustomerDropdown value={customer} onChange={setCustomer} customers={customers} />
         </Field>
         
@@ -1089,7 +1111,7 @@ function FundRequestForm({ user, onSubmit, onClose, customers }) {
         
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
-          <Button onClick={submit} disabled={totalAmount <= 0 || !reason} style={{ flex: 1 }}>Submit Request</Button>
+          <Button onClick={submit} disabled={totalAmount <= 0 || !reason || !customer} style={{ flex: 1 }}>Submit Request</Button>
         </div>
       </Card>
     </div>
@@ -1119,7 +1141,7 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
   };
 
   const submit = () => {
-    if (!amount || !description || !attachment) return;
+    if (!amount || !description || !attachment || !customer) return;
     onSubmit({
       id: editItem?.id || uid(), engineerId: user.id, engineerName: user.name,
       amount: parseFloat(amount), category, description, date, attachment, attachName,
@@ -1148,7 +1170,7 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
           </Field>
           <Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} /></Field>
         </div>
-        <Field label="Customer (optional)">
+        <Field label="Customer *">
           <CustomerDropdown value={customer} onChange={setCustomer} customers={customers} />
         </Field>
         <Field label="Amount (₹)">
@@ -1164,7 +1186,7 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
         </Field>
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
-          <Button onClick={submit} disabled={!amount || !description || !attachment || over} style={{ flex: 1 }}>{editItem ? "Update Expense" : "Submit Expense"}</Button>
+          <Button onClick={submit} disabled={!amount || !description || !attachment || over || !customer} style={{ flex: 1 }}>{editItem ? "Update Expense" : "Submit Expense"}</Button>
         </div>
       </Card>
     </div>
@@ -1190,7 +1212,6 @@ function ConfirmDeleteModal({ item, itemType, onConfirm, onClose }) {
 function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, isAdmin, filter, isReadOnly }) {
   const cat = (id) => CATEGORIES.find(c => c.id === id) || CATEGORIES[3];
   
-  // Enforce latest first sort by date then createdAt
   const filtered = expenses
     .filter(e => {
       if (!inRange(e.date, filter.dateRange || { mode: "all" })) return false;
@@ -1232,7 +1253,6 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
                   {exp.attachment && <Button small variant="outline" onClick={() => onViewAttachment(exp)}>📎 Bill</Button>}
                   {isAdmin && exp.attachment && <Button small variant="ghost" onClick={() => downloadAttachment(exp)}>⬇️</Button>}
                   
-                  {/* Hide write actions if in Read Only Mode */}
                   {!isReadOnly && !isAdmin && exp.status === "pending" && <Button small variant="outline" onClick={() => onEdit(exp)}>Edit</Button>}
                   {!isReadOnly && isAdmin && exp.status === "pending" && <Button small variant="primary" onClick={() => onReview(exp)}>Review</Button>}
                   {!isReadOnly && isAdmin && <Button small variant="danger" onClick={() => onDelete(exp)}>🗑️</Button>}
@@ -1258,7 +1278,6 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
 }
 
 function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete, isReadOnly }) {
-  // Enforce latest first sort by date then createdAt
   const filtered = requests
     .filter(r => {
       if (!isAdmin && r.engineerId !== engineerId) return false;
@@ -1319,7 +1338,6 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
 }
 
 function ReceivedFundList({ funds, onEdit, onDelete, filter, isReadOnly }) {
-  // Enforce latest first sort by date then createdAt
   const filtered = funds
     .filter(f => inRange(f.date, filter.dateRange || { mode: "all" }))
     .sort((a, b) => {
@@ -1460,7 +1478,7 @@ export default function App() {
   const [rfDateFilter, setRfDateFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
 
   // ── NOTIFICATIONS ──
-  const { toasts, dismissToast, notifHistory, unread, addNotif, clearHistory, markRead, permGranted } = useNotifications(user);
+  const { toasts, dismissToast, notifHistory, unread, addNotif, clearHistory, markRead, permGranted, stopSound } = useNotifications(user);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
 
   // Track previous snapshot states to detect real changes
@@ -1477,12 +1495,10 @@ export default function App() {
           data.forEach(exp => {
             const prev = prevMap[exp.id];
             if (!prev) {
-              // New expense submitted
               if (user.role === "admin") {
-                addNotif({ title: "🧾 New Expense Submitted", body: `${exp.engineerName} submitted ₹${Number(exp.amount).toLocaleString("en-IN")} for ${exp.description || exp.category}`, icon: "🧾", type: "info" });
+                addNotif({ title: "🧾 New Expense Submitted", body: `${exp.engineerName} submitted ₹${Number(exp.amount).toLocaleString("en-IN")} for ${exp.description || exp.category}`, icon: "🧾", type: "info", actionTab: "expenses" });
               }
             } else if (prev.status !== exp.status && exp.engineerId === user.id) {
-              // Status changed — notify the engineer
               if (exp.status === "approved") {
                 addNotif({ title: "✅ Expense Approved", body: `Your expense of ₹${Number(exp.amount).toLocaleString("en-IN")} (${exp.description || exp.category}) was approved!`, icon: "✅", type: "success" });
               } else if (exp.status === "rejected") {
@@ -1503,12 +1519,10 @@ export default function App() {
           data.forEach(req => {
             const prev = prevMap[req.id];
             if (!prev) {
-              // New fund request submitted
               if (user.role === "admin") {
-                addNotif({ title: "💰 New Fund Request", body: `${req.engineerName} requested ₹${Number(req.amount).toLocaleString("en-IN")} — ${req.reason}`, icon: "💰", type: "warning" });
+                addNotif({ title: "💰 New Fund Request", body: `${req.engineerName} requested ₹${Number(req.amount).toLocaleString("en-IN")} — ${req.reason}`, icon: "💰", type: "warning", actionTab: "requests" });
               }
             } else if (prev.status !== req.status && req.engineerId === user.id) {
-              // Status changed — notify the engineer
               if (req.status === "approved") {
                 addNotif({ title: "✅ Fund Request Approved", body: `Your request for ₹${Number(req.amount).toLocaleString("en-IN")} was approved!`, icon: "✅", type: "success" });
               } else if (req.status === "rejected") {
@@ -1628,7 +1642,7 @@ export default function App() {
 
       {/* NAV */}
       <div style={{ background: "#0F172A", padding: "0 24px", position: "sticky", top: 0, zIndex: 100, overflowX: "auto" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", gap: 20, height: 58, minWidth: 600 }}>
+        <div className="mobile-nav-container" style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", gap: 20, height: 58, minWidth: 600 }}>
           
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <div style={{ position: "relative", height: 36, width: 36, flexShrink: 0 }}>
@@ -1660,7 +1674,6 @@ export default function App() {
       {/* CONTENT */}
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 24px" }}>
 
-        {/* Read Only Admin Warning Banner */}
         {isReadOnly && (
           <div style={{ background: "#FEF2F2", border: "1px solid #F87171", color: "#991B1B", padding: "12px 20px", borderRadius: 12, marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 14 }}>⚠️ Viewing as <strong>{activeUser.name}</strong> (Read-Only Mode)</span>
@@ -1704,7 +1717,6 @@ export default function App() {
                   ))}
                 </div>
 
-                {/* Passed isAdmin and engineers so the component renders the dropdown */}
                 <LocationExpenseSummary expenses={expenses} customers={customers} allMonths={allMonths} isAdmin={isAdmin} engineers={engineers} />
                 <AdminSummary expenses={expenses} requests={requests} receivedFunds={receivedFunds} dashFilter={dashFilter} engineers={engineers} onViewEngineer={setViewingAsEngineer} />
               </>
@@ -1740,13 +1752,10 @@ export default function App() {
                   </div>
                 </Card>
                 
-                {/* MOVED: Pie chart is now strictly below My Ledger per request */}
                 <LocationExpenseSummary expenses={myExpenses} customers={customers} allMonths={allMonths} isAdmin={false} />
 
                 <Card>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}><h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Recent Expenses</h3><Button small variant="ghost" onClick={() => setTab("expenses")}>View all →</Button></div>
-                  
-                  {/* Latest first slice is done AFTER sort inside ExpenseList component. Using dummy large max count filter to cap it. */}
                   <ExpenseList 
                     expenses={myExpenses.sort((a,b) => new Date(b.date||0) - new Date(a.date||0)).slice(0, 5)} 
                     onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }} 
@@ -1894,7 +1903,15 @@ export default function App() {
 
       {/* ── NOTIFICATION PANEL & TOASTS ── */}
       {showNotifPanel && <NotifPanel notifs={notifHistory} onClear={clearHistory} onClose={() => setShowNotifPanel(false)} />}
-      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      <ToastContainer 
+        toasts={toasts} 
+        onDismiss={dismissToast} 
+        onToastClick={(t) => { 
+          if (t.actionTab) setTab(t.actionTab);
+          stopSound();
+          markRead();
+        }} 
+      />
     </div>
   );
 }
