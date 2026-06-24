@@ -323,8 +323,8 @@ function useNotifications(user) {
   const [urgentAlert, setUrgentAlert] = useState(null);
   const [permGranted, setPermGranted] = useState(Notification?.permission === "granted");
   
-  // A ringing phone sound fits best for urgent requests
-  const audioRef = useRef(typeof Audio !== "undefined" ? new Audio("https://actions.google.com/sounds/v1/communications/incoming_phone_call.ogg") : null);
+  // 🔥 UPDATED: Very noisy, loud continuous alarm clock sound
+  const audioRef = useRef(typeof Audio !== "undefined" ? new Audio("https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg") : null);
 
   useEffect(() => {
     if (user && Notification?.permission === "default") {
@@ -342,14 +342,19 @@ function useNotifications(user) {
     sendBrowserNotif(title, body);
 
     if (type === "urgent") {
-      // SWIGGY/RAPIDO STYLE: Set the full-screen alert and loop sound
+      // SET FULL SCREEN ALERT
       setUrgentAlert({ id, title, body, icon, actionTab });
+      
+      // 🔥 LOOP AND PLAY NOISY SOUND
       if (audioRef.current) {
-        audioRef.current.loop = true;
-        audioRef.current.play().catch(e => console.log("Audio autoplay blocked", e));
+        audioRef.current.loop = true; // This forces it to play infinitely
+        audioRef.current.currentTime = 0; // Start from beginning
+        audioRef.current.play().catch(e => {
+          console.log("Audio blocked by browser. You must interact with the page first before sound can play.", e);
+        });
       }
     } else {
-      // NORMAL STYLE: Show standard toast
+      // Normal silent toast for non-urgent things
       setToasts(prev => [...prev.slice(-4), { id, title, body, icon, type, actionTab }]);
       setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000);
     }
@@ -357,6 +362,7 @@ function useNotifications(user) {
 
   const stopSound = useCallback(() => {
     setUrgentAlert(null); // Hide the urgent modal
+    // 🔥 STOP THE NOISY SOUND
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
