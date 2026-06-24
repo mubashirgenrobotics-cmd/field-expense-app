@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
@@ -292,135 +292,6 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
 function hexToRgb(hex) {
   const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return r ? [parseInt(r[1],16), parseInt(r[2],16), parseInt(r[3],16)] : [0,0,0];
-}
-
-// ─── NOTIFICATION SYSTEM ──────────────────────────────────────────────────────
-
-// Request browser push permission
-async function requestNotifPermission() {
-  if (!("Notification" in window)) return "unsupported";
-  if (Notification.permission === "granted") return "granted";
-  if (Notification.permission === "denied") return "denied";
-  const result = await Notification.requestPermission();
-  return result;
-}
-
-// Fire a native browser push notification
-function sendBrowserNotif(title, body, icon = "📢") {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-  try {
-    new Notification(title, { body, icon: "/exp pro.png", badge: "/exp pro.png", tag: title + body });
-  } catch (e) {
-    // Some mobile browsers don't support new Notification() outside SW
-  }
-}
-
-// In-app Toast component
-function ToastContainer({ toasts, onDismiss }) {
-  if (!toasts.length) return null;
-  return (
-    <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, display: "flex", flexDirection: "column", gap: 10, maxWidth: 360 }}>
-      {toasts.map(t => (
-        <div key={t.id} style={{
-          background: t.type === "success" ? "#064E3B" : t.type === "error" ? "#7F1D1D" : t.type === "warning" ? "#78350F" : "#1E3A5F",
-          color: "#fff",
-          borderRadius: 14,
-          padding: "14px 18px",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
-          display: "flex",
-          alignItems: "flex-start",
-          gap: 12,
-          animation: "slideInRight 0.3s ease",
-          borderLeft: `4px solid ${t.type === "success" ? "#10B981" : t.type === "error" ? "#EF4444" : t.type === "warning" ? "#F59E0B" : "#3B82F6"}`,
-        }}>
-          <span style={{ fontSize: 20, flexShrink: 0 }}>{t.icon}</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{t.title}</div>
-            <div style={{ fontSize: 12, opacity: 0.85 }}>{t.body}</div>
-          </div>
-          <button onClick={() => onDismiss(t.id)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 16, padding: 0, flexShrink: 0 }}>✕</button>
-        </div>
-      ))}
-      <style>{`@keyframes slideInRight { from { transform: translateX(110%); opacity:0 } to { transform: translateX(0); opacity:1 } }`}</style>
-    </div>
-  );
-}
-
-// Notification Bell icon with badge
-function NotifBell({ count, onClick }) {
-  return (
-    <button onClick={onClick} title="Notifications" style={{ position: "relative", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 8, color: "#94A3B8", padding: "6px 10px", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center" }}>
-      🔔
-      {count > 0 && (
-        <span style={{ position: "absolute", top: 2, right: 2, background: "#EF4444", color: "#fff", borderRadius: "50%", width: 16, height: 16, fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{count > 9 ? "9+" : count}</span>
-      )}
-    </button>
-  );
-}
-
-// Notification history panel (slide-in drawer)
-function NotifPanel({ notifs, onClear, onClose }) {
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 4000 }} onClick={onClose}>
-      <div style={{ position: "absolute", top: 58, right: 0, width: 360, maxHeight: "80vh", overflowY: "auto", background: "var(--bg-card)", borderRadius: "0 0 0 16px", boxShadow: "-4px 8px 40px rgba(0,0,0,0.3)", border: "1px solid var(--border)" }}
-        onClick={e => e.stopPropagation()}>
-        <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <strong style={{ fontSize: 15 }}>🔔 Notifications</strong>
-          <div style={{ display: "flex", gap: 8 }}>
-            {notifs.length > 0 && <button onClick={onClear} style={{ fontSize: 12, color: "#3B82F6", background: "none", border: "none", cursor: "pointer" }}>Clear all</button>}
-            <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "var(--text-light)" }}>✕</button>
-          </div>
-        </div>
-        {notifs.length === 0
-          ? <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>No notifications yet</div>
-          : notifs.map(n => (
-            <div key={n.id} style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", gap: 12, alignItems: "flex-start", background: n.read ? "transparent" : "rgba(59,130,246,0.05)" }}>
-              <span style={{ fontSize: 20 }}>{n.icon}</span>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-main)" }}>{n.title}</div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{n.body}</div>
-                <div style={{ fontSize: 11, color: "var(--text-light)", marginTop: 4 }}>{n.time}</div>
-              </div>
-            </div>
-          ))
-        }
-      </div>
-    </div>
-  );
-}
-
-// Main notifications hook
-function useNotifications(user) {
-  const [toasts, setToasts] = useState([]);
-  const [notifHistory, setNotifHistory] = useState([]);
-  const [unread, setUnread] = useState(0);
-  const [permGranted, setPermGranted] = useState(Notification?.permission === "granted");
-
-  // Ask for permission on mount
-  useEffect(() => {
-    if (user && Notification?.permission === "default") {
-      requestNotifPermission().then(p => setPermGranted(p === "granted"));
-    }
-  }, [user]);
-
-  const addNotif = useCallback(({ title, body, icon = "📢", type = "info" }) => {
-    const id = uid();
-    const timeStr = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-    // Toast
-    setToasts(prev => [...prev.slice(-4), { id, title, body, icon, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000);
-    // History
-    setNotifHistory(prev => [{ id, title, body, icon, type, time: timeStr, read: false }, ...prev.slice(0, 49)]);
-    setUnread(c => c + 1);
-    // Browser push
-    sendBrowserNotif(title, body);
-  }, []);
-
-  const dismissToast = useCallback((id) => setToasts(prev => prev.filter(t => t.id !== id)), []);
-  const clearHistory = useCallback(() => { setNotifHistory([]); setUnread(0); }, []);
-  const markRead = useCallback(() => { setNotifHistory(prev => prev.map(n => ({ ...n, read: true }))); setUnread(0); }, []);
-
-  return { toasts, dismissToast, notifHistory, unread, addNotif, clearHistory, markRead, permGranted };
 }
 
 // ─── CHARTS & DASHBOARD EXTENSIONS ────────────────────────────────────────────
@@ -1459,69 +1330,10 @@ export default function App() {
   const [tabDateFilter, setTabDateFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
   const [rfDateFilter, setRfDateFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
 
-  // ── NOTIFICATIONS ──
-  const { toasts, dismissToast, notifHistory, unread, addNotif, clearHistory, markRead, permGranted } = useNotifications(user);
-  const [showNotifPanel, setShowNotifPanel] = useState(false);
-
-  // Track previous snapshot states to detect real changes
-  const prevExpenses = useRef(null);
-  const prevRequests = useRef(null);
-  const isFirstLoad = useRef({ expenses: true, requests: true });
-
   useEffect(() => {
     const unsubs = [
-      onSnapshot(collection(db, "expenses"), snap => {
-        const data = snap.docs.map(d => d.data());
-        if (!isFirstLoad.current.expenses && prevExpenses.current && user) {
-          const prevMap = Object.fromEntries((prevExpenses.current || []).map(e => [e.id, e]));
-          data.forEach(exp => {
-            const prev = prevMap[exp.id];
-            if (!prev) {
-              // New expense submitted
-              if (user.role === "admin") {
-                addNotif({ title: "🧾 New Expense Submitted", body: `${exp.engineerName} submitted ₹${Number(exp.amount).toLocaleString("en-IN")} for ${exp.description || exp.category}`, icon: "🧾", type: "info" });
-              }
-            } else if (prev.status !== exp.status && exp.engineerId === user.id) {
-              // Status changed — notify the engineer
-              if (exp.status === "approved") {
-                addNotif({ title: "✅ Expense Approved", body: `Your expense of ₹${Number(exp.amount).toLocaleString("en-IN")} (${exp.description || exp.category}) was approved!`, icon: "✅", type: "success" });
-              } else if (exp.status === "rejected") {
-                addNotif({ title: "❌ Expense Rejected", body: `Your expense of ₹${Number(exp.amount).toLocaleString("en-IN")} (${exp.description || exp.category}) was rejected.`, icon: "❌", type: "error" });
-              }
-            }
-          });
-        }
-        isFirstLoad.current.expenses = false;
-        prevExpenses.current = data;
-        setExpenses(data);
-      }),
-
-      onSnapshot(collection(db, "requests"), snap => {
-        const data = snap.docs.map(d => d.data());
-        if (!isFirstLoad.current.requests && prevRequests.current && user) {
-          const prevMap = Object.fromEntries((prevRequests.current || []).map(r => [r.id, r]));
-          data.forEach(req => {
-            const prev = prevMap[req.id];
-            if (!prev) {
-              // New fund request submitted
-              if (user.role === "admin") {
-                addNotif({ title: "💰 New Fund Request", body: `${req.engineerName} requested ₹${Number(req.amount).toLocaleString("en-IN")} — ${req.reason}`, icon: "💰", type: "warning" });
-              }
-            } else if (prev.status !== req.status && req.engineerId === user.id) {
-              // Status changed — notify the engineer
-              if (req.status === "approved") {
-                addNotif({ title: "✅ Fund Request Approved", body: `Your request for ₹${Number(req.amount).toLocaleString("en-IN")} was approved!`, icon: "✅", type: "success" });
-              } else if (req.status === "rejected") {
-                addNotif({ title: "❌ Fund Request Rejected", body: `Your request for ₹${Number(req.amount).toLocaleString("en-IN")} — ${req.reason} was rejected.`, icon: "❌", type: "error" });
-              }
-            }
-          });
-        }
-        isFirstLoad.current.requests = false;
-        prevRequests.current = data;
-        setRequests(data);
-      }),
-
+      onSnapshot(collection(db, "expenses"), snap => setExpenses(snap.docs.map(d => d.data()))),
+      onSnapshot(collection(db, "requests"), snap => setRequests(snap.docs.map(d => d.data()))),
       onSnapshot(collection(db, "receivedFunds"), snap => setReceivedFunds(snap.docs.map(d => d.data()))),
       onSnapshot(collection(db, "users"), snap => {
         const u = snap.docs.map(d => d.data());
@@ -1530,7 +1342,7 @@ export default function App() {
       onSnapshot(collection(db, "customers"), snap => setCustomers(snap.docs.map(d => d.data()))),
     ];
     return () => unsubs.forEach(u => u());
-  }, [user?.id, user?.role, addNotif]);
+  }, []);
 
   useEffect(() => {
     if (dbUsers.length === 0) {
@@ -1648,10 +1460,6 @@ export default function App() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <Avatar user={user} size={32} />
-            <NotifBell count={unread} onClick={() => { setShowNotifPanel(v => !v); markRead(); }} />
-            {!permGranted && Notification?.permission !== "denied" && (
-              <button onClick={() => requestNotifPermission().then(() => {})} title="Enable push notifications" style={{ background: "rgba(245,158,11,0.15)", border: "1px solid #F59E0B", borderRadius: 8, color: "#F59E0B", padding: "5px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>Enable Alerts</button>
-            )}
             <button onClick={handleLogout} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 8, color: "#94A3B8", padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>Sign out</button>
           </div>
         </div>
@@ -1891,10 +1699,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-      {/* ── NOTIFICATION PANEL & TOASTS ── */}
-      {showNotifPanel && <NotifPanel notifs={notifHistory} onClear={clearHistory} onClose={() => setShowNotifPanel(false)} />}
-      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
