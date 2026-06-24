@@ -397,7 +397,7 @@ function useNotifications(user) {
   const [permGranted, setPermGranted] = useState(Notification?.permission === "granted");
   
   // Audio configuration for looping alert sound
-  const audioRef = useRef(typeof Audio !== "undefined" ? new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg") : null);
+  const audioRef = useRef(typeof Audio !== "undefined" ? new Audio("https://actions.google.com/sounds/v1/alarms/dosimeter_alarm.ogg") : null);
 
   useEffect(() => {
     if (user && Notification?.permission === "default") {
