@@ -299,7 +299,7 @@ function hexToRgb(hex) {
   return r ? [parseInt(r[1],16), parseInt(r[2],16), parseInt(r[3],16)] : [0,0,0];
 }
 
-// ─── NOTIFICATION SYSTEM ──────────────────────────────────────────────────────
+// ─── NOTIFICATION SYSTEM (WITH URGENT MODAL) ──────────────────────────────────
 
 async function requestNotifPermission() {
   if (!("Notification" in window)) return "unsupported";
@@ -314,6 +314,100 @@ function sendBrowserNotif(title, body, icon = "📢") {
   try {
     new Notification(title, { body, icon: "/exp pro.png", badge: "/exp pro.png", tag: title + body });
   } catch (e) { }
+}
+
+function useNotifications(user) {
+  const [toasts, setToasts] = useState([]);
+  const [notifHistory, setNotifHistory] = useState([]);
+  const [unread, setUnread] = useState(0);
+  const [urgentAlert, setUrgentAlert] = useState(null);
+  const [permGranted, setPermGranted] = useState(Notification?.permission === "granted");
+  
+  // A ringing phone sound fits best for urgent requests
+  const audioRef = useRef(typeof Audio !== "undefined" ? new Audio("https://actions.google.com/sounds/v1/communications/incoming_phone_call.ogg") : null);
+
+  useEffect(() => {
+    if (user && Notification?.permission === "default") {
+      requestNotifPermission().then(p => setPermGranted(p === "granted"));
+    }
+  }, [user]);
+
+  const addNotif = useCallback(({ title, body, icon = "📢", type = "info", actionTab = null }) => {
+    const id = uid();
+    const timeStr = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+    
+    // History & Badge
+    setNotifHistory(prev => [{ id, title, body, icon, type, time: timeStr, read: false, actionTab }, ...prev.slice(0, 49)]);
+    setUnread(c => c + 1);
+    sendBrowserNotif(title, body);
+
+    if (type === "urgent") {
+      // SWIGGY/RAPIDO STYLE: Set the full-screen alert and loop sound
+      setUrgentAlert({ id, title, body, icon, actionTab });
+      if (audioRef.current) {
+        audioRef.current.loop = true;
+        audioRef.current.play().catch(e => console.log("Audio autoplay blocked", e));
+      }
+    } else {
+      // NORMAL STYLE: Show standard toast
+      setToasts(prev => [...prev.slice(-4), { id, title, body, icon, type, actionTab }]);
+      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000);
+    }
+  }, []);
+
+  const stopSound = useCallback(() => {
+    setUrgentAlert(null); // Hide the urgent modal
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  }, []);
+
+  const dismissToast = useCallback((id) => setToasts(prev => prev.filter(t => t.id !== id)), []);
+  
+  const clearHistory = useCallback(() => { 
+    setNotifHistory([]); 
+    setUnread(0); 
+    stopSound();
+  }, [stopSound]);
+  
+  const markRead = useCallback(() => { 
+    setNotifHistory(prev => prev.map(n => ({ ...n, read: true }))); 
+    setUnread(0); 
+  }, []);
+
+  return { toasts, dismissToast, notifHistory, unread, addNotif, clearHistory, markRead, permGranted, stopSound, urgentAlert };
+}
+
+// ─── SWIGGY/RAPIDO STYLE ALERT COMPONENT ──────────────────────────────────────
+function IncomingRequestAlert({ alert, onAccept, onDismiss }) {
+  if (!alert) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.85)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999, padding: 24 }}>
+      <div style={{ background: "var(--bg-card)", borderRadius: 24, padding: "40px 32px", width: "100%", maxWidth: 400, textAlign: "center", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.5)", animation: "slideUp 0.3s ease-out" }}>
+        
+        {/* Pulsing Icon */}
+        <div style={{ position: "relative", width: 90, height: 90, margin: "0 auto 32px" }}>
+          <div style={{ position: "absolute", inset: 0, background: "#3B82F6", borderRadius: "50%", animation: "pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite" }} />
+          <div style={{ position: "relative", background: "linear-gradient(135deg, #1E40AF, #3B82F6)", width: "100%", height: "100%", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 40, color: "#fff", boxShadow: "0 4px 20px rgba(59,130,246,0.4)" }}>
+            {alert.icon}
+          </div>
+        </div>
+
+        <h2 style={{ margin: "0 0 12px", fontSize: 24, fontWeight: 800, color: "var(--text-main)" }}>{alert.title}</h2>
+        <p style={{ margin: "0 0 40px", fontSize: 16, color: "var(--text-muted)", lineHeight: 1.5 }}>{alert.body}</p>
+        
+        <div style={{ display: "flex", gap: 12, flexDirection: "column" }}>
+          <Button onClick={() => onAccept(alert)} variant="primary" style={{ width: "100%", padding: "16px", fontSize: 16, justifyContent: "center" }}>View Details</Button>
+          <Button onClick={onDismiss} variant="ghost" style={{ width: "100%", padding: "14px", fontSize: 15, justifyContent: "center", border: "2px solid var(--border)", color: "var(--text-muted)" }}>Dismiss</Button>
+        </div>
+      </div>
+      <style>{`
+        @keyframes pulse-ring { 0% { transform: scale(0.9); opacity: 0.8; } 100% { transform: scale(2.2); opacity: 0; } }
+        @keyframes slideUp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+      `}</style>
+    </div>
+  );
 }
 
 function ToastContainer({ toasts, onDismiss, onToastClick }) {
@@ -388,63 +482,6 @@ function NotifPanel({ notifs, onClear, onClose }) {
       </div>
     </div>
   );
-}
-
-function useNotifications(user) {
-  const [toasts, setToasts] = useState([]);
-  const [notifHistory, setNotifHistory] = useState([]);
-  const [unread, setUnread] = useState(0);
-  const [permGranted, setPermGranted] = useState(Notification?.permission === "granted");
-  
-  // Audio configuration for looping alert sound
-  const audioRef = useRef(typeof Audio !== "undefined" ? new Audio("https://actions.google.com/sounds/v1/alarms/dosimeter_alarm.ogg") : null);
-
-  useEffect(() => {
-    if (user && Notification?.permission === "default") {
-      requestNotifPermission().then(p => setPermGranted(p === "granted"));
-    }
-  }, [user]);
-
-  const addNotif = useCallback(({ title, body, icon = "📢", type = "info", actionTab = null }) => {
-    const id = uid();
-    const timeStr = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-    
-    setToasts(prev => [...prev.slice(-4), { id, title, body, icon, type, actionTab }]);
-    setNotifHistory(prev => [{ id, title, body, icon, type, time: timeStr, read: false, actionTab }, ...prev.slice(0, 49)]);
-    setUnread(c => c + 1);
-    sendBrowserNotif(title, body);
-
-    // Play looping sound
-    if (audioRef.current) {
-      audioRef.current.loop = true;
-      audioRef.current.play().catch(e => console.log("Audio autoplay blocked by browser", e));
-    }
-
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000);
-  }, []);
-
-  const stopSound = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-  }, []);
-
-  const dismissToast = useCallback((id) => setToasts(prev => prev.filter(t => t.id !== id)), []);
-  
-  const clearHistory = useCallback(() => { 
-    setNotifHistory([]); 
-    setUnread(0); 
-    stopSound();
-  }, [stopSound]);
-  
-  const markRead = useCallback(() => { 
-    setNotifHistory(prev => prev.map(n => ({ ...n, read: true }))); 
-    setUnread(0); 
-    stopSound();
-  }, [stopSound]);
-
-  return { toasts, dismissToast, notifHistory, unread, addNotif, clearHistory, markRead, permGranted, stopSound };
 }
 
 // ─── CHARTS & DASHBOARD EXTENSIONS ────────────────────────────────────────────
@@ -1478,7 +1515,7 @@ export default function App() {
   const [rfDateFilter, setRfDateFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
 
   // ── NOTIFICATIONS ──
-  const { toasts, dismissToast, notifHistory, unread, addNotif, clearHistory, markRead, permGranted, stopSound } = useNotifications(user);
+  const { toasts, dismissToast, notifHistory, unread, addNotif, clearHistory, markRead, permGranted, stopSound, urgentAlert } = useNotifications(user);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
 
   // Track previous snapshot states to detect real changes
@@ -1496,7 +1533,8 @@ export default function App() {
             const prev = prevMap[exp.id];
             if (!prev) {
               if (user.role === "admin") {
-                addNotif({ title: "🧾 New Expense Submitted", body: `${exp.engineerName} submitted ₹${Number(exp.amount).toLocaleString("en-IN")} for ${exp.description || exp.category}`, icon: "🧾", type: "info", actionTab: "expenses" });
+                // Swiggy alert for admin
+                addNotif({ title: "🧾 New Expense Submitted", body: `${exp.engineerName} submitted ₹${Number(exp.amount).toLocaleString("en-IN")} for ${exp.description || exp.category}`, icon: "🧾", type: "urgent", actionTab: "expenses" });
               }
             } else if (prev.status !== exp.status && exp.engineerId === user.id) {
               if (exp.status === "approved") {
@@ -1520,7 +1558,8 @@ export default function App() {
             const prev = prevMap[req.id];
             if (!prev) {
               if (user.role === "admin") {
-                addNotif({ title: "💰 New Fund Request", body: `${req.engineerName} requested ₹${Number(req.amount).toLocaleString("en-IN")} — ${req.reason}`, icon: "💰", type: "warning", actionTab: "requests" });
+                // Swiggy alert for admin
+                addNotif({ title: "💰 New Fund Request", body: `${req.engineerName} requested ₹${Number(req.amount).toLocaleString("en-IN")} — ${req.reason}`, icon: "💰", type: "urgent", actionTab: "requests" });
               }
             } else if (prev.status !== req.status && req.engineerId === user.id) {
               if (req.status === "approved") {
@@ -1901,14 +1940,25 @@ export default function App() {
         </div>
       )}
 
-      {/* ── NOTIFICATION PANEL & TOASTS ── */}
+      {/* ── NOTIFICATION PANEL, ALERTS & TOASTS ── */}
       {showNotifPanel && <NotifPanel notifs={notifHistory} onClear={clearHistory} onClose={() => setShowNotifPanel(false)} />}
+      
+      {/* NEW: Swiggy/Rapido Style Full Screen Alert */}
+      <IncomingRequestAlert 
+        alert={urgentAlert} 
+        onDismiss={stopSound} 
+        onAccept={(alertInfo) => {
+          if (alertInfo.actionTab) setTab(alertInfo.actionTab);
+          stopSound();
+          markRead();
+        }} 
+      />
+
       <ToastContainer 
         toasts={toasts} 
         onDismiss={dismissToast} 
         onToastClick={(t) => { 
           if (t.actionTab) setTab(t.actionTab);
-          stopSound();
           markRead();
         }} 
       />
