@@ -605,6 +605,67 @@ function LocationExpenseSummary({ expenses, customers, allMonths, isAdmin, engin
 }
 
 // ─── COMPONENTS ───────────────────────────────────────────────────────────────
+
+// GenRobotics official-style logo: gear ring + bold G lettermark
+function GenRoboticsLogo({ size = 40 }) {
+  const r = size / 2;
+  const teeth = 12;
+  const outerR = r * 0.98;
+  const innerR = r * 0.76;
+  const toothH = r * 0.14;
+  const toothW = 0.18; // radians
+
+  // Build gear path
+  let d = "";
+  for (let i = 0; i < teeth; i++) {
+    const a1 = (i * 2 * Math.PI) / teeth;
+    const a2 = a1 + toothW;
+    const a3 = a1 + Math.PI / teeth - toothW;
+    const a4 = a1 + Math.PI / teeth;
+    const ox = (v, a) => r + v * Math.cos(a);
+    const oy = (v, a) => r + v * Math.sin(a);
+    if (i === 0) d += `M ${ox(innerR, a1)} ${oy(innerR, a1)} `;
+    d += `L ${ox(innerR, a1)} ${oy(innerR, a1)} `;
+    d += `L ${ox(outerR, a2)} ${oy(outerR, a2)} `;
+    d += `L ${ox(outerR + toothH, a2)} ${oy(outerR + toothH, a2)} `;
+    d += `L ${ox(outerR + toothH, a3)} ${oy(outerR + toothH, a3)} `;
+    d += `L ${ox(outerR, a3)} ${oy(outerR, a3)} `;
+    d += `L ${ox(innerR, a4)} ${oy(innerR, a4)} `;
+  }
+  d += "Z";
+
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+      <defs>
+        <radialGradient id="grGold" cx="35%" cy="30%" r="70%">
+          <stop offset="0%" stopColor="#F0C040" />
+          <stop offset="100%" stopColor="#8A6800" />
+        </radialGradient>
+        <filter id="grGlow">
+          <feGaussianBlur stdDeviation="1" result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+      </defs>
+      {/* Dark circle background */}
+      <circle cx={r} cy={r} r={r} fill="#0A0A0A" />
+      {/* Gear ring */}
+      <path d={d} fill="url(#grGold)" filter="url(#grGlow)" />
+      {/* Inner circle cutout */}
+      <circle cx={r} cy={r} r={innerR * 0.88} fill="#0A0A0A" />
+      {/* Bold G lettermark */}
+      <text
+        x={r} y={r * 1.36}
+        textAnchor="middle"
+        fontSize={r * 1.05}
+        fontWeight="900"
+        fontFamily="'Plus Jakarta Sans', Arial Black, sans-serif"
+        fill="url(#grGold)"
+        letterSpacing="-1"
+      >G</text>
+    </svg>
+  );
+}
+
 function Avatar({ user, size = 36 }) {
   return (
     <div style={{
@@ -751,9 +812,8 @@ function Login({ onLogin, users }) {
         {/* Gold decorative line top */}
         <div style={{ width: 60, height: 3, background: "linear-gradient(90deg, transparent, #D4A017, transparent)", margin: "0 auto 28px", borderRadius: 2 }} />
 
-        <div style={{ position: "relative", width: 100, height: 100, margin: "0 auto 16px" }}>
-          <div style={{ position: "absolute", inset: 0, borderRadius: 20, background: "linear-gradient(135deg, #8A6800, #D4A017)", display: "flex", alignItems: "center", justifyContent: "center", color: "#0A0A0A", fontSize: 32, fontWeight: 900 }}>GR</div>
-          <img src="exp pro.png" alt="GenRobotics Logo" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", borderRadius: 20, objectFit: "contain", background: "#fff", padding: 4 }} onError={(e) => e.target.style.display='none'} />
+        <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 16px" }}>
+          <GenRoboticsLogo size={100} />
         </div>
 
         <h1 style={{ color: "#D4A017", fontSize: 26, fontWeight: 900, margin: "0 0 2px", letterSpacing: "-0.03em" }}>GenRobotics</h1>
@@ -1726,10 +1786,7 @@ export default function App() {
         <div style={{ padding: "20px 20px 16px", borderBottom: "1px solid #2A2416", background: "linear-gradient(135deg, #0A0A0A 0%, #1A1200 100%)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {/* GenRobotics Logo */}
-            <div style={{ position: "relative", height: 42, width: 42, flexShrink: 0 }}>
-              <div style={{ position: "absolute", inset: 0, borderRadius: 10, background: "linear-gradient(135deg, #8A6800, #D4A017)", display: "flex", alignItems: "center", justifyContent: "center", color: "#0A0A0A", fontSize: 13, fontWeight: 900, letterSpacing: "-0.5px" }}>GR</div>
-              <img src="exp pro.png" alt="GenRobotics" style={{ position: "absolute", inset: 0, height: "100%", width: "100%", borderRadius: 10, objectFit: "contain", background: "#fff", padding: 3 }} onError={(e) => e.target.style.display='none'} />
-            </div>
+            <GenRoboticsLogo size={44} />
             <div style={{ flex: 1 }}>
               <div style={{ color: "#D4A017", fontWeight: 900, fontSize: 15, letterSpacing: "-0.02em" }}>GenRobotics</div>
               <div style={{ color: "#6B5B3E", fontSize: 10, marginTop: 1, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Field Expense Pro</div>
@@ -1786,10 +1843,7 @@ export default function App() {
 
           {/* GenRobotics Logo + Name */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            <div style={{ position: "relative", height: 34, width: 34, flexShrink: 0 }}>
-              <div style={{ position: "absolute", inset: 0, borderRadius: 8, background: "linear-gradient(135deg, #8A6800, #D4A017)", display: "flex", alignItems: "center", justifyContent: "center", color: "#0A0A0A", fontSize: 12, fontWeight: 900 }}>GR</div>
-              <img src="exp pro.png" alt="GenRobotics" style={{ position: "absolute", inset: 0, height: "100%", width: "100%", borderRadius: 8, objectFit: "contain", background: "#fff", padding: 2 }} onError={(e) => e.target.style.display='none'} />
-            </div>
+            <GenRoboticsLogo size={36} />
             <div>
               <div style={{ color: "#D4A017", fontWeight: 900, fontSize: 14, lineHeight: 1.1 }}>GenRobotics</div>
               <div style={{ color: "#6B5B3E", fontSize: 9, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Expense Pro</div>
