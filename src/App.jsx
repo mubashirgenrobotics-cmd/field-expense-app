@@ -606,14 +606,14 @@ function LocationExpenseSummary({ expenses, customers, allMonths, isAdmin, engin
 
 // ─── COMPONENTS ───────────────────────────────────────────────────────────────
 
-// GenRobotics official-style logo: gear ring + bold G lettermark
+// GenRobotics logo: gear ring + G lettermark + ₹ expense badge
 function GenRoboticsLogo({ size = 40 }) {
   const r = size / 2;
-  const teeth = 12;
-  const outerR = r * 0.98;
-  const innerR = r * 0.76;
-  const toothH = r * 0.14;
-  const toothW = 0.18; // radians
+  const teeth = 14;
+  const outerR = r * 0.96;
+  const innerR = r * 0.74;
+  const toothH = r * 0.13;
+  const toothW = 0.16;
 
   // Build gear path
   let d = "";
@@ -634,34 +634,70 @@ function GenRoboticsLogo({ size = 40 }) {
   }
   d += "Z";
 
+  // ₹ badge size & position (bottom-right of gear)
+  const badgeR = r * 0.30;
+  const badgeX = r + innerR * 0.68;
+  const badgeY = r + innerR * 0.68;
+
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
       <defs>
-        <radialGradient id="grGold" cx="35%" cy="30%" r="70%">
+        <radialGradient id={`grGold_${size}`} cx="35%" cy="30%" r="70%">
           <stop offset="0%" stopColor="#F0C040" />
           <stop offset="100%" stopColor="#8A6800" />
         </radialGradient>
-        <filter id="grGlow">
-          <feGaussianBlur stdDeviation="1" result="blur" />
+        <radialGradient id={`grGoldBadge_${size}`} cx="30%" cy="25%" r="75%">
+          <stop offset="0%" stopColor="#F0C040" />
+          <stop offset="100%" stopColor="#D4A017" />
+        </radialGradient>
+        <filter id={`grGlow_${size}`} x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="0.8" result="blur" />
           <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
       </defs>
-      {/* Dark circle background */}
-      <circle cx={r} cy={r} r={r} fill="#0A0A0A" />
+
+      {/* Outer dashed orbit ring */}
+      <circle cx={r} cy={r} r={r * 0.99} fill="none" stroke="#3A2800" strokeWidth="0.6" strokeDasharray="3 2" />
+
+      {/* Dark background circle */}
+      <circle cx={r} cy={r} r={r * 0.94} fill="#0A0A0A" />
+
       {/* Gear ring */}
-      <path d={d} fill="url(#grGold)" filter="url(#grGlow)" />
-      {/* Inner circle cutout */}
-      <circle cx={r} cy={r} r={innerR * 0.88} fill="#0A0A0A" />
+      <path d={d} fill={`url(#grGold_${size})`} filter={`url(#grGlow_${size})`} />
+
+      {/* Inner dark circle */}
+      <circle cx={r} cy={r} r={innerR * 0.90} fill="#0A0A0A" />
+
+      {/* Inner accent ring */}
+      <circle cx={r} cy={r} r={innerR * 0.87} fill="none" stroke="#D4A017" strokeWidth="0.8" />
+
+      {/* 4 dot accents at cardinal points on inner ring */}
+      {[0, 1, 2, 3].map(i => {
+        const a = (i * Math.PI) / 2;
+        return <circle key={i} cx={r + innerR * 0.87 * Math.cos(a)} cy={r + innerR * 0.87 * Math.sin(a)} r={r * 0.028} fill="#F0C040" />;
+      })}
+
       {/* Bold G lettermark */}
       <text
-        x={r} y={r * 1.36}
+        x={r} y={r * 1.32}
         textAnchor="middle"
-        fontSize={r * 1.05}
+        fontSize={r * 1.0}
         fontWeight="900"
-        fontFamily="'Plus Jakarta Sans', Arial Black, sans-serif"
-        fill="url(#grGold)"
-        letterSpacing="-1"
+        fontFamily="'Arial Black', Impact, sans-serif"
+        fill={`url(#grGold_${size})`}
       >G</text>
+
+      {/* ₹ badge circle */}
+      <circle cx={badgeX} cy={badgeY} r={badgeR + r * 0.04} fill="#0A0A0A" />
+      <circle cx={badgeX} cy={badgeY} r={badgeR} fill="#1A1000" stroke={`url(#grGoldBadge_${size})`} strokeWidth="1.2" />
+      <text
+        x={badgeX} y={badgeY + badgeR * 0.42}
+        textAnchor="middle"
+        fontSize={badgeR * 1.1}
+        fontWeight="900"
+        fontFamily="Arial, sans-serif"
+        fill="#F0C040"
+      >₹</text>
     </svg>
   );
 }
