@@ -7,27 +7,18 @@ const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
   :root {
-    --bg-page: #F8FAFC;
-    --bg-card: #ffffff;
-    --text-main: #111827;
-    --text-muted: #6B7280;
-    --text-light: #9CA3AF;
-    --border: #E5E7EB;
-    --input-bg: #F9FAFB;
-    --hover-bg: #F3F4F6;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg-page: #0F172A;
-      --bg-card: #1E293B;
-      --text-main: #F9FAFB;
-      --text-muted: #9CA3AF;
-      --text-light: #64748B;
-      --border: #334155;
-      --input-bg: #0F172A;
-      --hover-bg: #334155;
-    }
+    --bg-page: #0A0A0A;
+    --bg-card: #141414;
+    --text-main: #F5F0E8;
+    --text-muted: #A89060;
+    --text-light: #6B5B3E;
+    --border: #2A2416;
+    --input-bg: #0F0F0F;
+    --hover-bg: #1A1608;
+    --gold: #D4A017;
+    --gold-light: #F0C040;
+    --gold-dim: #8A6800;
+    --gold-bg: rgba(212,160,23,0.08);
   }
 
   * {
@@ -35,12 +26,22 @@ const GLOBAL_CSS = `
     letter-spacing: -0.01em;
   }
 
-  /* MOBILE COMPACT STYLES */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #0A0A0A; }
+  ::-webkit-scrollbar-thumb { background: #2A2416; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #D4A017; }
+
+  input:focus, select:focus, textarea:focus {
+    outline: none !important;
+    border-color: #D4A017 !important;
+    box-shadow: 0 0 0 3px rgba(212,160,23,0.15) !important;
+  }
+
   @media (max-width: 640px) {
     div[style*="padding: 24px"] { padding: 16px !important; }
     div[style*="padding: 16px"] { padding: 12px !important; }
     div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
-    input, select, textarea { font-size: 16px !important; } /* Prevent iOS zoom */
+    input, select, textarea { font-size: 16px !important; }
   }
 `;
 
@@ -53,7 +54,7 @@ const DEFAULT_USERS = [
 ];
 
 const CATEGORIES = [
-  { id: "travel", label: "Travel", icon: "✈️", color: "#3B82F6" },
+  { id: "travel", label: "Travel", icon: "✈️", color: "#D4A017" },
   { id: "accommodation", label: "Accommodation", icon: "🏨", color: "#8B5CF6" },
   { id: "local_purchase", label: "Local Purchase", icon: "🛒", color: "#F59E0B" },
   { id: "other", label: "Other", icon: "📦", color: "#10B981" },
@@ -154,14 +155,17 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const W = 210, M = 16;
 
-  pdf.setFillColor(15, 23, 42);
+  pdf.setFillColor(10, 10, 10);
   pdf.rect(0, 0, W, 38, "F");
-  pdf.setTextColor(255, 255, 255);
+  // Gold accent bar
+  pdf.setFillColor(212, 160, 23);
+  pdf.rect(0, 35, W, 3, "F");
+  pdf.setTextColor(212, 160, 23);
   pdf.setFontSize(20); pdf.setFont("helvetica", "bold");
-  pdf.text("FieldExpense Pro", M, 14);
-  pdf.setFontSize(10); pdf.setFont("helvetica", "normal");
-  pdf.text("Expense Report", M, 21);
-  pdf.setFontSize(9);
+  pdf.text("GenRobotics", M, 14);
+  pdf.setFontSize(10); pdf.setFont("helvetica", "normal"); pdf.setTextColor(168, 144, 96);
+  pdf.text("Field Expense Pro · Expense Report", M, 21);
+  pdf.setFontSize(9); pdf.setTextColor(107, 90, 62);
   pdf.text(`Generated: ${new Date().toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" })}`, W - M, 21, { align: "right" });
 
   pdf.setFontSize(13); pdf.setFont("helvetica", "bold"); pdf.setTextColor(15, 23, 42);
@@ -186,7 +190,7 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
     summaryItems = [
       ["Total Approved Amount (Funds)", pdfFmt(totalApprovedAmount), "#10B981"],
       ["Total Submitted Approved Bills", pdfFmt(totalSubmittedApprovedBillAmount), "#EF4444"],
-      ["Remaining Balance", pdfFmt(balance), balance < 0 ? "#EF4444" : "#1E40AF"],
+      ["Remaining Balance", pdfFmt(balance), balance < 0 ? "#EF4444" : "#D4A017"],
     ];
   } else {
     const totalReceived = filteredFunds.reduce((s, f) => s + f.amount, 0);
@@ -198,7 +202,7 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
       ["Total Received (period)", pdfFmt(totalReceived), "#065F46"],
       ["Total Submitted Expenses", pdfFmt(totalExpenses), "#EF4444"],
       ["Approved Expenses", pdfFmt(approvedExpenses), "#10B981"],
-      ["Balance / Reimbursement", pdfFmt(balance), balance < 0 ? "#EF4444" : "#1E40AF"],
+      ["Balance / Reimbursement", pdfFmt(balance), balance < 0 ? "#EF4444" : "#D4A017"],
     ];
   }
 
@@ -249,22 +253,24 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
 
   const withAttach = filtered.filter(e => e.attachment);
   if (withAttach.length > 0) {
-    pdf.addPage();
-    pdf.setFillColor(15, 23, 42);
+    pdf.setFillColor(10, 10, 10);
     pdf.rect(0, 0, W, 18, "F");
-    pdf.setTextColor(255,255,255); pdf.setFontSize(13); pdf.setFont("helvetica", "bold");
+    pdf.setFillColor(212, 160, 23);
+    pdf.rect(0, 16, W, 2, "F");
+    pdf.setTextColor(212, 160, 23); pdf.setFontSize(13); pdf.setFont("helvetica", "bold");
     pdf.text("Bill Attachments", M, 12);
 
     for (let i = 0; i < withAttach.length; i++) {
       const exp = withAttach[i];
       if (!exp.attachment || !exp.attachment.startsWith("data:image")) continue;
 
-      pdf.addPage();
-      pdf.setFillColor(15, 23, 42);
+      pdf.setFillColor(10, 10, 10);
       pdf.rect(0, 0, W, 16, "F");
-      pdf.setTextColor(255,255,255); pdf.setFontSize(10); pdf.setFont("helvetica", "bold");
+      pdf.setFillColor(212, 160, 23);
+      pdf.rect(0, 14, W, 2, "F");
+      pdf.setTextColor(212, 160, 23); pdf.setFontSize(10); pdf.setFont("helvetica", "bold");
       pdf.text(`Bill ${i+1} of ${withAttach.length}`, M, 11);
-      pdf.setFont("helvetica", "normal"); pdf.setFontSize(8);
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(8); pdf.setTextColor(168, 144, 96);
       pdf.text(`${exp.description} · ${exp.date} · ${pdfFmt(exp.amount)}`, W - M, 11, { align: "right" });
 
       pdf.setFillColor(249, 250, 251);
@@ -394,8 +400,8 @@ function IncomingRequestAlert({ alert, onAccept, onDismiss }) {
         
         {/* Pulsing Icon */}
         <div style={{ position: "relative", width: 90, height: 90, margin: "0 auto 32px" }}>
-          <div style={{ position: "absolute", inset: 0, background: "#3B82F6", borderRadius: "50%", animation: "pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite" }} />
-          <div style={{ position: "relative", background: "linear-gradient(135deg, #1E40AF, #3B82F6)", width: "100%", height: "100%", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 40, color: "#fff", boxShadow: "0 4px 20px rgba(59,130,246,0.4)" }}>
+          <div style={{ position: "absolute", inset: 0, background: "#D4A017", borderRadius: "50%", animation: "pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite" }} />
+          <div style={{ position: "relative", background: "linear-gradient(135deg, #8A6800, #D4A017)", width: "100%", height: "100%", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 40, color: "#fff", boxShadow: "0 4px 20px rgba(212,160,23,0.4)" }}>
             {alert.icon}
           </div>
         </div>
@@ -433,7 +439,7 @@ function ToastContainer({ toasts, onDismiss, onToastClick }) {
           alignItems: "flex-start",
           gap: 12,
           animation: "slideInRight 0.3s ease",
-          borderLeft: `4px solid ${t.type === "success" ? "#10B981" : t.type === "error" ? "#EF4444" : t.type === "warning" ? "#F59E0B" : "#3B82F6"}`,
+          borderLeft: `4px solid ${t.type === "success" ? "#10B981" : t.type === "error" ? "#EF4444" : t.type === "warning" ? "#F59E0B" : "#D4A017"}`,
           cursor: "pointer"
         }}>
           <span style={{ fontSize: 20, flexShrink: 0 }}>{t.icon}</span>
@@ -451,10 +457,10 @@ function ToastContainer({ toasts, onDismiss, onToastClick }) {
 
 function NotifBell({ count, onClick }) {
   return (
-    <button onClick={onClick} title="Notifications" style={{ position: "relative", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 8, color: "#94A3B8", padding: "6px 10px", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center" }}>
+    <button onClick={onClick} title="Notifications" style={{ position: "relative", background: "rgba(212,160,23,0.1)", border: "1px solid rgba(212,160,23,0.2)", borderRadius: 8, color: "#D4A017", padding: "6px 10px", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center" }}>
       🔔
       {count > 0 && (
-        <span style={{ position: "absolute", top: 2, right: 2, background: "#EF4444", color: "#fff", borderRadius: "50%", width: 16, height: 16, fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{count > 9 ? "9+" : count}</span>
+        <span style={{ position: "absolute", top: 2, right: 2, background: "#D4A017", color: "#0A0A0A", borderRadius: "50%", width: 16, height: 16, fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{count > 9 ? "9+" : count}</span>
       )}
     </button>
   );
@@ -468,14 +474,14 @@ function NotifPanel({ notifs, onClear, onClose }) {
         <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <strong style={{ fontSize: 15 }}>🔔 Notifications</strong>
           <div style={{ display: "flex", gap: 8 }}>
-            {notifs.length > 0 && <button onClick={onClear} style={{ fontSize: 12, color: "#3B82F6", background: "none", border: "none", cursor: "pointer" }}>Clear all</button>}
+            {notifs.length > 0 && <button onClick={onClear} style={{ fontSize: 12, color: "#D4A017", background: "none", border: "none", cursor: "pointer" }}>Clear all</button>}
             <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "var(--text-light)" }}>✕</button>
           </div>
         </div>
         {notifs.length === 0
           ? <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>No notifications yet</div>
           : notifs.map(n => (
-            <div key={n.id} style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", gap: 12, alignItems: "flex-start", background: n.read ? "transparent" : "rgba(59,130,246,0.05)" }}>
+            <div key={n.id} style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", gap: 12, alignItems: "flex-start", background: n.read ? "transparent" : "rgba(212,160,23,0.06)" }}>
               <span style={{ fontSize: 20 }}>{n.icon}</span>
               <div>
                 <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-main)" }}>{n.title}</div>
@@ -517,9 +523,9 @@ function SimplePieChart({ data, size = 160 }) {
             <strong style={{ color: "var(--text-main)" }}>{fmt(d.value)}</strong>
           </div>
         ))}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, background: "rgba(30, 64, 175, 0.1)", padding: "8px 10px", borderRadius: 8, marginTop: 4, border: "1px solid rgba(30, 64, 175, 0.2)" }}>
-          <span style={{ color: "#1E40AF", fontWeight: 800 }}>Total</span>
-          <strong style={{ color: "#1E40AF", fontWeight: 800 }}>{fmt(total)}</strong>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, background: "rgba(212,160,23,0.1)", padding: "8px 10px", borderRadius: 8, marginTop: 4, border: "1px solid rgba(212,160,23,0.25)" }}>
+          <span style={{ color: "#D4A017", fontWeight: 800 }}>Total</span>
+          <strong style={{ color: "#D4A017", fontWeight: 800 }}>{fmt(total)}</strong>
         </div>
       </div>
     </div>
@@ -602,9 +608,9 @@ function LocationExpenseSummary({ expenses, customers, allMonths, isAdmin, engin
 function Avatar({ user, size = 36 }) {
   return (
     <div style={{
-      width: size, height: size, borderRadius: "50%", background: "linear-gradient(135deg, #1E40AF, #7C3AED)",
-      display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700,
-      fontSize: size * 0.35, flexShrink: 0,
+      width: size, height: size, borderRadius: "50%", background: "linear-gradient(135deg, #8A6800, #D4A017)",
+      display: "flex", alignItems: "center", justifyContent: "center", color: "#0A0A0A", fontWeight: 800,
+      fontSize: size * 0.35, flexShrink: 0, border: "1.5px solid #D4A017",
     }}>{user.avatar || initials(user.name)}</div>
   );
 }
@@ -620,24 +626,24 @@ function Badge({ status }) {
 }
 
 function Card({ children, style, onClick }) {
-  return <div onClick={onClick} style={{ background: "var(--bg-card)", borderRadius: 16, border: "1px solid var(--border)", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", padding: 24, color: "var(--text-main)", ...style }}>{children}</div>;
+  return <div onClick={onClick} style={{ background: "var(--bg-card)", borderRadius: 16, border: "1px solid var(--border)", boxShadow: "0 2px 12px rgba(0,0,0,0.4)", padding: 24, color: "var(--text-main)", ...style }}>{children}</div>;
 }
 
 function Button({ children, onClick, variant = "primary", disabled, style, small }) {
   const base = {
     border: "none", borderRadius: small ? 8 : 10, cursor: disabled ? "not-allowed" : "pointer",
-    fontWeight: 600, fontSize: small ? 12 : 14, padding: small ? "6px 14px" : "10px 22px",
+    fontWeight: 700, fontSize: small ? 12 : 14, padding: small ? "6px 14px" : "10px 22px",
     transition: "all 0.15s", opacity: disabled ? 0.5 : 1, display: "inline-flex", alignItems: "center", gap: 6, ...style,
   };
   const variants = {
-    primary: { background: "linear-gradient(135deg,#1E40AF,#3B82F6)", color: "#fff" },
-    success: { background: "linear-gradient(135deg,#065F46,#10B981)", color: "#fff" },
-    danger: { background: "linear-gradient(135deg,#991B1B,#EF4444)", color: "#fff" },
+    primary: { background: "linear-gradient(135deg,#8A6800,#D4A017)", color: "#0A0A0A" },
+    success: { background: "linear-gradient(135deg,#1A4A1A,#22C55E)", color: "#fff" },
+    danger: { background: "linear-gradient(135deg,#4A1A1A,#EF4444)", color: "#fff" },
     ghost: { background: "transparent", color: "var(--text-main)" },
-    outline: { background: "transparent", color: "var(--text-main)", border: "1.5px solid var(--border)" },
-    warning: { background: "linear-gradient(135deg,#92400E,#F59E0B)", color: "#fff" },
-    teal: { background: "linear-gradient(135deg,#0F766E,#14B8A6)", color: "#fff" },
-    purple: { background: "linear-gradient(135deg,#5B21B6,#8B5CF6)", color: "#fff" },
+    outline: { background: "transparent", color: "#D4A017", border: "1.5px solid #D4A017" },
+    warning: { background: "linear-gradient(135deg,#4A3000,#F59E0B)", color: "#0A0A0A" },
+    teal: { background: "linear-gradient(135deg,#0F4A44,#14B8A6)", color: "#fff" },
+    purple: { background: "linear-gradient(135deg,#2A1A5A,#8B5CF6)", color: "#fff" },
   };
   return <button style={{ ...base, ...variants[variant] }} onClick={onClick} disabled={disabled}>{children}</button>;
 }
@@ -739,29 +745,34 @@ function Login({ onLogin, users }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0F172A 0%, #1E1B4B 50%, #0F172A 100%)" }}>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "radial-gradient(ellipse at top, #1A1200 0%, #0A0A0A 60%)" }}>
       <div style={{ textAlign: "center", width: "100%", maxWidth: 420, padding: "0 24px" }}>
         
+        {/* Gold decorative line top */}
+        <div style={{ width: 60, height: 3, background: "linear-gradient(90deg, transparent, #D4A017, transparent)", margin: "0 auto 28px", borderRadius: 2 }} />
+
         <div style={{ position: "relative", width: 100, height: 100, margin: "0 auto 16px" }}>
-          <div style={{ position: "absolute", inset: 0, borderRadius: 20, background: "linear-gradient(135deg, #1E40AF, #7C3AED)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 40, fontWeight: 800 }}>FE</div>
-          <img src="exp pro.png" alt="FieldExpense Pro Logo" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", borderRadius: 20, objectFit: "contain", background: "#fff", padding: 4 }} onError={(e) => e.target.style.display='none'} />
+          <div style={{ position: "absolute", inset: 0, borderRadius: 20, background: "linear-gradient(135deg, #8A6800, #D4A017)", display: "flex", alignItems: "center", justifyContent: "center", color: "#0A0A0A", fontSize: 32, fontWeight: 900 }}>GR</div>
+          <img src="exp pro.png" alt="GenRobotics Logo" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", borderRadius: 20, objectFit: "contain", background: "#fff", padding: 4 }} onError={(e) => e.target.style.display='none'} />
         </div>
 
-        <h1 style={{ color: "#fff", fontSize: 28, fontWeight: 800, margin: "0 0 4px" }}>FieldExpense Pro</h1>
-        <p style={{ color: "#94A3B8", fontSize: 14, margin: "0 0 32px" }}>Field Engineer Expense Management</p>
-        <Card>
-          <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>User ID</label>
+        <h1 style={{ color: "#D4A017", fontSize: 26, fontWeight: 900, margin: "0 0 2px", letterSpacing: "-0.03em" }}>GenRobotics</h1>
+        <p style={{ color: "#6B5B3E", fontSize: 13, margin: "0 0 6px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>Field Expense Pro</p>
+        <p style={{ color: "#4A3B28", fontSize: 12, margin: "0 0 28px" }}>Field Engineer Expense Management</p>
+        <Card style={{ border: "1px solid #2A2416", background: "#111008" }}>
+          <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#A89060", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>User ID</label>
             <select value={id} onChange={e => setId(e.target.value)} style={inputStyle}>
               <option value="">Select user...</option>
               {allUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
             </select>
           </div>
-          <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Password</label>
+          <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#A89060", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Password</label>
             <input type="password" value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === "Enter" && handle()} placeholder="Enter password" style={inputStyle} />
           </div>
           {err && <p style={{ color: "#EF4444", fontSize: 13, margin: "0 0 12px" }}>{err}</p>}
           <Button onClick={handle} style={{ width: "100%" }} disabled={!id || !pw}>Sign In →</Button>
         </Card>
+        <div style={{ marginTop: 24, fontSize: 11, color: "#2A2010", fontWeight: 600, letterSpacing: "0.06em" }}>© GenRobotics · Powered by FieldExpense Pro</div>
       </div>
     </div>
   );
@@ -795,8 +806,8 @@ function AdminDatabase({ users, customers, onSaveUser, onDeleteUser, onSaveCusto
         {[{ id: "engineers", label: "👷 Engineers", count: engineers.length }, { id: "customers", label: "👥 Customers", count: customers.length }].map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
             padding: "8px 18px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 13,
-            background: activeTab === t.id ? "linear-gradient(135deg,#1E40AF,#3B82F6)" : "var(--hover-bg)",
-            color: activeTab === t.id ? "#fff" : "var(--text-main)"
+            background: activeTab === t.id ? "linear-gradient(135deg,#8A6800,#D4A017)" : "var(--hover-bg)",
+            color: activeTab === t.id ? "#0A0A0A" : "var(--text-main)"
           }}>{t.label} <span style={{ opacity: 0.7, fontSize: 11 }}>({t.count})</span></button>
         ))}
       </div>
@@ -1075,7 +1086,7 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject }) {
           <strong>Reason:</strong> {item.reason || item.description}<br />
           {item.customer && <><strong>Customer:</strong> {item.customer}<br /></>}
           <strong>Date:</strong> {item.date}<br />
-          <strong>Original Amount:</strong> <span style={{ color: "#3B82F6", fontWeight: 700 }}>{fmt(item.amount)}</span>
+          <strong>Original Amount:</strong> <span style={{ color: "#D4A017", fontWeight: 700 }}>{fmt(item.amount)}</span>
         </div>
         <Field label="Approved Amount (₹)"><input type="number" value={amount} onChange={e => setAmount(e.target.value)} style={inputStyle} /></Field>
         {amountChanged && (
@@ -1144,7 +1155,7 @@ function FundRequestForm({ user, onSubmit, onClose, customers }) {
           </div>
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontWeight: 600, fontSize: 14 }}>Total Amount:</span>
-            <span style={{ fontWeight: 800, fontSize: 18, color: "#3B82F6" }}>{fmt(totalAmount)}</span>
+            <span style={{ fontWeight: 800, fontSize: 18, color: "#D4A017" }}>{fmt(totalAmount)}</span>
           </div>
         </div>
 
@@ -1203,7 +1214,7 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--text-light)" }}>✕</button>
         </div>
         <div style={{ background: "rgba(59, 130, 246, 0.1)", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, border: "1px solid rgba(59, 130, 246, 0.2)" }}>
-          Available Balance: <strong style={{ color: "#3B82F6" }}>{fmt(availableBalance)}</strong>
+          Available Balance: <strong style={{ color: "#D4A017" }}>{fmt(availableBalance)}</strong>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Category">
@@ -1358,7 +1369,7 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
                       <span style={{ fontWeight: 800, fontSize: 15, color: "#10B981" }}>Approved: {fmt(req.amount)}</span>
                     </div>
                   ) : (
-                    <span style={{ fontWeight: 700, fontSize: 15, color: "#3B82F6" }}>{fmt(req.amount)}</span>
+                    <span style={{ fontWeight: 700, fontSize: 15, color: "#D4A017" }}>{fmt(req.amount)}</span>
                   )}
                   <Badge status={req.status} />
                   {hasEditLog && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>EDITED</span>}
@@ -1398,7 +1409,7 @@ function ReceivedFundList({ funds, onEdit, onDelete, filter, isReadOnly }) {
           <div style={{ flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
               <span style={{ fontWeight: 700, fontSize: 15, color: "#10B981" }}>{fmt(f.amount)}</span>
-              {f.pfrNo && <span style={{ fontSize: 11, background: "rgba(59, 130, 246, 0.1)", color: "#3B82F6", padding: "1px 8px", borderRadius: 10, fontWeight: 700 }}>PFR: {f.pfrNo}</span>}
+              {f.pfrNo && <span style={{ fontSize: 11, background: "rgba(59, 130, 246, 0.1)", color: "#D4A017", padding: "1px 8px", borderRadius: 10, fontWeight: 700 }}>PFR: {f.pfrNo}</span>}
             </div>
             <div style={{ fontSize: 13, color: "var(--text-main)", fontWeight: 600 }}>{f.purpose}</div>
             <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 2 }}>
@@ -1438,7 +1449,7 @@ function AdminSummary({ expenses, requests, receivedFunds, dashFilter, engineers
             { label: "Distributed", value: fmt(totalDisbursed), color: "#F59E0B" },
             { label: "Total Submitted Bills", value: fmt(totalSubmittedBills), color: "#EF4444", sub: "approved bills sum" },
             { label: "Pending Bills", value: fmt(Math.max(0, unsubmitted)), color: unsubmitted < 0 ? "#EF4444" : "#FBBF24", sub: "distributed − submitted" },
-            { label: "Fund Balance", value: fmt(remainingReceived), color: remainingReceived < 0 ? "#EF4444" : "#60A5FA", sub: "received − distributed" },
+            { label: "Fund Balance", value: fmt(remainingReceived), color: remainingReceived < 0 ? "#EF4444" : "#D4A017", sub: "received − distributed" },
           ].map((item, i) => (
             <div key={i} style={{ textAlign: "center" }}>
               <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{item.label}</div>
@@ -1449,7 +1460,7 @@ function AdminSummary({ expenses, requests, receivedFunds, dashFilter, engineers
         </div>
         {totalReceived > 0 && (
           <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 8, height: 8, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${Math.min(100, (totalDisbursed / totalReceived) * 100)}%`, background: "linear-gradient(90deg,#3B82F6,#7C3AED)", borderRadius: 8, transition: "width 0.5s" }} />
+            <div style={{ height: "100%", width: `${Math.min(100, (totalDisbursed / totalReceived) * 100)}%`, background: "linear-gradient(90deg,#8A6800,#D4A017)", borderRadius: 8, transition: "width 0.5s" }} />
           </div>
         )}
       </Card>
@@ -1475,7 +1486,7 @@ function AdminSummary({ expenses, requests, receivedFunds, dashFilter, engineers
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Funds Distributed</span><span style={{ color: "#10B981", fontWeight: 700 }}>{fmt(funds)}</span></div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Submitted Bills</span><span style={{ color: "#EF4444", fontWeight: 700 }}>{fmt(approvedBills)}</span></div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Pending Bills</span><span style={{ color: "#F59E0B", fontWeight: 700 }}>{fmt(pendingBills)}</span></div>
-                <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, borderTop: "1px solid var(--border)" }}><span style={{ color: "var(--text-main)", fontWeight: 600 }}>Balance</span><span style={{ color: bal < 0 ? "#EF4444" : "#3B82F6", fontWeight: 700 }}>{fmt(bal)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, borderTop: "1px solid var(--border)" }}><span style={{ color: "var(--text-main)", fontWeight: 600 }}>Balance</span><span style={{ color: bal < 0 ? "#EF4444" : "#D4A017", fontWeight: 700 }}>{fmt(bal)}</span></div>
               </div>
             </Card>
           );
@@ -1705,22 +1716,29 @@ export default function App() {
 
       {/* SLIDE-OUT DRAWER */}
       <div style={{
-        position: "fixed", top: 0, left: 0, height: "100vh", width: 260,
-        background: "#0F172A", zIndex: 300, transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
+        position: "fixed", top: 0, left: 0, height: "100vh", width: 270,
+        background: "#0A0A0A", zIndex: 300, transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
         transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)",
-        display: "flex", flexDirection: "column", boxShadow: "4px 0 24px rgba(0,0,0,0.4)"
+        display: "flex", flexDirection: "column", boxShadow: "4px 0 32px rgba(0,0,0,0.7)",
+        borderRight: "1px solid #2A2416"
       }}>
         {/* Drawer Header */}
-        <div style={{ padding: "20px 20px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ position: "relative", height: 38, width: 38, flexShrink: 0 }}>
-            <div style={{ position: "absolute", inset: 0, borderRadius: 9, background: "linear-gradient(135deg, #1E40AF, #7C3AED)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 15, fontWeight: 800 }}>FE</div>
-            <img src="exp pro.png" alt="Logo" style={{ position: "absolute", inset: 0, height: "100%", width: "100%", borderRadius: 9, objectFit: "contain", background: "#fff", padding: 2 }} onError={(e) => e.target.style.display='none'} />
+        <div style={{ padding: "20px 20px 16px", borderBottom: "1px solid #2A2416", background: "linear-gradient(135deg, #0A0A0A 0%, #1A1200 100%)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {/* GenRobotics Logo */}
+            <div style={{ position: "relative", height: 42, width: 42, flexShrink: 0 }}>
+              <div style={{ position: "absolute", inset: 0, borderRadius: 10, background: "linear-gradient(135deg, #8A6800, #D4A017)", display: "flex", alignItems: "center", justifyContent: "center", color: "#0A0A0A", fontSize: 13, fontWeight: 900, letterSpacing: "-0.5px" }}>GR</div>
+              <img src="exp pro.png" alt="GenRobotics" style={{ position: "absolute", inset: 0, height: "100%", width: "100%", borderRadius: 10, objectFit: "contain", background: "#fff", padding: 3 }} onError={(e) => e.target.style.display='none'} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: "#D4A017", fontWeight: 900, fontSize: 15, letterSpacing: "-0.02em" }}>GenRobotics</div>
+              <div style={{ color: "#6B5B3E", fontSize: 10, marginTop: 1, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Field Expense Pro</div>
+            </div>
+            <button onClick={() => setDrawerOpen(false)} style={{ background: "none", border: "none", color: "#6B5B3E", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 4 }}>✕</button>
           </div>
-          <div>
-            <div style={{ color: "#fff", fontWeight: 800, fontSize: 15 }}>FieldExpense</div>
-            <div style={{ color: "#64748B", fontSize: 11, marginTop: 1 }}>{user.name} · {user.role}</div>
-          </div>
-          <button onClick={() => setDrawerOpen(false)} style={{ marginLeft: "auto", background: "none", border: "none", color: "#64748B", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 4 }}>✕</button>
+          {/* Gold divider line */}
+          <div style={{ marginTop: 14, height: 1, background: "linear-gradient(90deg, #D4A017, transparent)" }} />
+          <div style={{ marginTop: 8, fontSize: 11, color: "#6B5B3E", fontWeight: 600 }}>{user.name} · {user.role.charAt(0).toUpperCase() + user.role.slice(1)}</div>
         </div>
 
         {/* Nav Items */}
@@ -1728,30 +1746,31 @@ export default function App() {
           {tabs.map(t => (
             <button key={t.id} onClick={() => handleTabClick(t.id)} style={{
               width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
-              background: tab === t.id ? "rgba(59,130,246,0.18)" : "none",
-              border: "none", borderRadius: 10, padding: "11px 14px",
-              color: tab === t.id ? "#60A5FA" : "#94A3B8",
+              background: tab === t.id ? "rgba(212,160,23,0.12)" : "none",
+              border: tab === t.id ? "1px solid rgba(212,160,23,0.2)" : "1px solid transparent",
+              borderRadius: 10, padding: "11px 14px",
+              color: tab === t.id ? "#D4A017" : "#A89060",
               cursor: "pointer", fontSize: 14, fontWeight: tab === t.id ? 700 : 500,
-              marginBottom: 2, transition: "background 0.15s"
+              marginBottom: 3, transition: "all 0.15s"
             }}>
               <span style={{ fontSize: 18, width: 24, textAlign: "center" }}>{t.icon}</span>
               <span>{t.label}</span>
-              {tab === t.id && <span style={{ marginLeft: "auto", width: 4, height: 20, borderRadius: 2, background: "#3B82F6" }} />}
+              {tab === t.id && <span style={{ marginLeft: "auto", width: 4, height: 20, borderRadius: 2, background: "linear-gradient(180deg,#F0C040,#8A6800)" }} />}
             </button>
           ))}
         </div>
 
         {/* Drawer Footer */}
-        <div style={{ padding: "14px 10px", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+        <div style={{ padding: "14px 10px", borderTop: "1px solid #2A2416" }}>
           {!permGranted && Notification?.permission !== "denied" && (
-            <button onClick={() => requestNotifPermission().then(() => {})} style={{ width: "100%", background: "rgba(245,158,11,0.12)", border: "1px solid #F59E0B", borderRadius: 10, color: "#F59E0B", padding: "9px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>🔔 Enable Alerts</button>
+            <button onClick={() => requestNotifPermission().then(() => {})} style={{ width: "100%", background: "rgba(212,160,23,0.1)", border: "1px solid #D4A017", borderRadius: 10, color: "#D4A017", padding: "9px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>🔔 Enable Alerts</button>
           )}
-          <button onClick={handleLogout} style={{ width: "100%", background: "rgba(255,255,255,0.06)", border: "none", borderRadius: 10, color: "#94A3B8", padding: "9px 14px", cursor: "pointer", fontSize: 13, textAlign: "left" }}>← Sign out</button>
+          <button onClick={handleLogout} style={{ width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid #2A2416", borderRadius: 10, color: "#6B5B3E", padding: "9px 14px", cursor: "pointer", fontSize: 13, textAlign: "left" }}>← Sign out</button>
         </div>
       </div>
 
-      {/* TOP NAV BAR (slim) */}
-      <div style={{ background: "#0F172A", padding: "0 20px", position: "sticky", top: 0, zIndex: 100 }}>
+      {/* TOP NAV BAR */}
+      <div style={{ background: "#0A0A0A", padding: "0 20px", position: "sticky", top: 0, zIndex: 100, borderBottom: "1px solid #2A2416", boxShadow: "0 2px 20px rgba(0,0,0,0.6)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", gap: 14, height: 56 }}>
           
           {/* Hamburger Button */}
@@ -1760,25 +1779,28 @@ export default function App() {
             style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex", flexDirection: "column", gap: 5, flexShrink: 0 }}
             aria-label="Open menu"
           >
-            <span style={{ display: "block", width: 22, height: 2, background: "#94A3B8", borderRadius: 2 }} />
-            <span style={{ display: "block", width: 22, height: 2, background: "#94A3B8", borderRadius: 2 }} />
-            <span style={{ display: "block", width: 22, height: 2, background: "#94A3B8", borderRadius: 2 }} />
+            <span style={{ display: "block", width: 22, height: 2, background: "#D4A017", borderRadius: 2 }} />
+            <span style={{ display: "block", width: 16, height: 2, background: "#D4A017", borderRadius: 2 }} />
+            <span style={{ display: "block", width: 22, height: 2, background: "#D4A017", borderRadius: 2 }} />
           </button>
 
-          {/* Logo + App Name */}
-          <div style={{ display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
-            <div style={{ position: "relative", height: 32, width: 32, flexShrink: 0 }}>
-              <div style={{ position: "absolute", inset: 0, borderRadius: 8, background: "linear-gradient(135deg, #1E40AF, #7C3AED)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 13, fontWeight: 800 }}>FE</div>
-              <img src="exp pro.png" alt="Logo" style={{ position: "absolute", inset: 0, height: "100%", width: "100%", borderRadius: 8, objectFit: "contain", background: "#fff", padding: 2 }} onError={(e) => e.target.style.display='none'} />
+          {/* GenRobotics Logo + Name */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <div style={{ position: "relative", height: 34, width: 34, flexShrink: 0 }}>
+              <div style={{ position: "absolute", inset: 0, borderRadius: 8, background: "linear-gradient(135deg, #8A6800, #D4A017)", display: "flex", alignItems: "center", justifyContent: "center", color: "#0A0A0A", fontSize: 12, fontWeight: 900 }}>GR</div>
+              <img src="exp pro.png" alt="GenRobotics" style={{ position: "absolute", inset: 0, height: "100%", width: "100%", borderRadius: 8, objectFit: "contain", background: "#fff", padding: 2 }} onError={(e) => e.target.style.display='none'} />
             </div>
-            <span style={{ color: "#fff", fontWeight: 800, fontSize: 15, letterSpacing: "-0.02em" }}>FieldExpense</span>
+            <div>
+              <div style={{ color: "#D4A017", fontWeight: 900, fontSize: 14, lineHeight: 1.1 }}>GenRobotics</div>
+              <div style={{ color: "#6B5B3E", fontSize: 9, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Expense Pro</div>
+            </div>
           </div>
 
           {/* Divider */}
-          <span style={{ width: 1, height: 20, background: "rgba(255,255,255,0.12)", flexShrink: 0 }} />
+          <span style={{ width: 1, height: 22, background: "#2A2416", flexShrink: 0 }} />
 
           {/* Current page title */}
-          <span style={{ color: "#94A3B8", fontWeight: 500, fontSize: 13, flex: 1 }}>
+          <span style={{ color: "#A89060", fontWeight: 600, fontSize: 13, flex: 1 }}>
             {tabs.find(t => t.id === tab)?.icon} {tabs.find(t => t.id === tab)?.label}
           </span>
 
@@ -1825,7 +1847,7 @@ export default function App() {
                       { label: "Received Fund", value: fmt(mF.reduce((s, f) => s + f.amount, 0)), icon: "💵", color: "#10B981" },
                       { label: "Pending Fund Requests", value: mR.filter(r => r.status === "pending").length, icon: "⏳", color: "#F59E0B" },
                       { label: "Pending Expenses", value: mE.filter(e => e.status === "pending").length, icon: "📋", color: "#EF4444" },
-                      { label: "Total Distributed", value: fmt(mR.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0)), icon: "💰", color: "#3B82F6" },
+                      { label: "Total Distributed", value: fmt(mR.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0)), icon: "💰", color: "#D4A017" },
                     ];
                   })().map(s => (
                     <Card key={s.label} style={{ padding: "18px 20px" }}>
@@ -1860,7 +1882,7 @@ export default function App() {
                     {[
                       { label: "Approved Funds", value: fmt(approvedFunds), color: "#10B981", icon: "💰" },
                       { label: "Approved Expenses", value: fmt(approvedExpenses), color: "#EF4444", icon: "🧾" },
-                      { label: "Available Balance", value: fmt(availableBalance), color: availableBalance < 0 ? "#EF4444" : "#3B82F6", icon: "📊" },
+                      { label: "Available Balance", value: fmt(availableBalance), color: availableBalance < 0 ? "#EF4444" : "#D4A017", icon: "📊" },
                     ].map(item => (
                       <div key={item.label} style={{ background: "var(--input-bg)", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
                         <div style={{ fontSize: 22, marginBottom: 4 }}>{item.icon}</div>
@@ -1908,7 +1930,7 @@ export default function App() {
                 const latest = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
                 return [
                   { label: "Total Received", value: fmt(total), icon: "💵", color: "#10B981" },
-                  { label: "Entries", value: entries, icon: "📋", color: "#3B82F6" },
+                  { label: "Entries", value: entries, icon: "📋", color: "#D4A017" },
                   { label: "Latest Entry", value: latest ? latest.date : "—", icon: "📅", color: "#8B5CF6" },
                 ];
               })().map(s => (
