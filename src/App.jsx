@@ -162,7 +162,7 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
   pdf.rect(0, 35, W, 3, "F");
   pdf.setTextColor(212, 160, 23);
   pdf.setFontSize(20); pdf.setFont("helvetica", "bold");
-  pdf.text("GenRobotics", M, 14);
+  pdf.text("Field Expense Pro", M, 14);
   pdf.setFontSize(10); pdf.setFont("helvetica", "normal"); pdf.setTextColor(168, 144, 96);
   pdf.text("Field Expense Pro · Expense Report", M, 21);
   pdf.setFontSize(9); pdf.setTextColor(107, 90, 62);
@@ -852,8 +852,8 @@ function Login({ onLogin, users }) {
           <GenRoboticsLogo size={100} />
         </div>
 
-        <h1 style={{ color: "#D4A017", fontSize: 26, fontWeight: 900, margin: "0 0 2px", letterSpacing: "-0.03em" }}>GenRobotics</h1>
-        <p style={{ color: "#6B5B3E", fontSize: 13, margin: "0 0 6px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>Field Expense Pro</p>
+        <h1 style={{ color: "#D4A017", fontSize: 26, fontWeight: 900, margin: "0 0 2px", letterSpacing: "-0.03em" }}>Field Expense Pro</h1>
+        
         <p style={{ color: "#4A3B28", fontSize: 12, margin: "0 0 28px" }}>Field Engineer Expense Management</p>
         <Card style={{ border: "1px solid #2A2416", background: "#111008" }}>
           <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#A89060", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>User ID</label>
@@ -868,7 +868,7 @@ function Login({ onLogin, users }) {
           {err && <p style={{ color: "#EF4444", fontSize: 13, margin: "0 0 12px" }}>{err}</p>}
           <Button onClick={handle} style={{ width: "100%" }} disabled={!id || !pw}>Sign In →</Button>
         </Card>
-        <div style={{ marginTop: 24, fontSize: 11, color: "#2A2010", fontWeight: 600, letterSpacing: "0.06em" }}>© GenRobotics · Powered by FieldExpense Pro</div>
+        <div style={{ marginTop: 24, fontSize: 11, color: "#2A2010", fontWeight: 600, letterSpacing: "0.06em" }}>© Field Expense Pro</div>
       </div>
     </div>
   );
@@ -1824,8 +1824,8 @@ export default function App() {
             {/* GenRobotics Logo */}
             <GenRoboticsLogo size={44} />
             <div style={{ flex: 1 }}>
-              <div style={{ color: "#D4A017", fontWeight: 900, fontSize: 15, letterSpacing: "-0.02em" }}>GenRobotics</div>
-              <div style={{ color: "#6B5B3E", fontSize: 10, marginTop: 1, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Field Expense Pro</div>
+              <div style={{ color: "#D4A017", fontWeight: 900, fontSize: 15, letterSpacing: "-0.02em" }}>Field Expense Pro</div>
+              
             </div>
             <button onClick={() => setDrawerOpen(false)} style={{ background: "none", border: "none", color: "#6B5B3E", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 4 }}>✕</button>
           </div>
@@ -1881,8 +1881,8 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <GenRoboticsLogo size={36} />
             <div>
-              <div style={{ color: "#D4A017", fontWeight: 900, fontSize: 14, lineHeight: 1.1 }}>GenRobotics</div>
-              <div style={{ color: "#6B5B3E", fontSize: 9, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Expense Pro</div>
+              <div style={{ color: "#D4A017", fontWeight: 900, fontSize: 14, lineHeight: 1.1 }}>Field Expense Pro</div>
+              
             </div>
           </div>
 
