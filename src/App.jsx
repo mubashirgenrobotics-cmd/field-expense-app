@@ -1862,10 +1862,10 @@ export default function App() {
         </div>
       </div>
 
-      {/* TOP NAV BAR */}
+      {/* TOP NAV BAR — Layer 1: App Identity Only */}
       <div style={{ background: "#0A0A0A", padding: "0 20px", position: "sticky", top: 0, zIndex: 100, borderBottom: "1px solid #2A2416", boxShadow: "0 2px 20px rgba(0,0,0,0.6)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", gap: 14, height: 56 }}>
-          
+
           {/* Hamburger Button */}
           <button
             onClick={() => setDrawerOpen(true)}
@@ -1877,28 +1877,34 @@ export default function App() {
             <span style={{ display: "block", width: 22, height: 2, background: "#D4A017", borderRadius: 2 }} />
           </button>
 
-          {/* GenRobotics Logo + Name */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          {/* GenRobotics Logo + App Name — centred */}
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
             <GenRoboticsLogo size={36} />
-            <div>
-              <div style={{ color: "#D4A017", fontWeight: 900, fontSize: 14, lineHeight: 1.1 }}>Field Expense Pro</div>
-              
+            <div style={{ color: "#D4A017", fontWeight: 900, fontSize: 15, letterSpacing: "-0.02em" }}>
+              Field Expense Pro
             </div>
           </div>
-
-          {/* Divider */}
-          <span style={{ width: 1, height: 22, background: "#2A2416", flexShrink: 0 }} />
-
-          {/* Current page title */}
-          <span style={{ color: "#A89060", fontWeight: 600, fontSize: 13, flex: 1 }}>
-            {tabs.find(t => t.id === tab)?.icon} {tabs.find(t => t.id === tab)?.label}
-          </span>
 
           {/* Right side actions */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <Avatar user={user} size={30} />
             <NotifBell count={unread} onClick={() => { setShowNotifPanel(v => !v); markRead(); }} />
           </div>
+        </div>
+      </div>
+
+      {/* PAGE TITLE BAR — Layer 2: Current Window Name */}
+      <div style={{ background: "#111008", borderBottom: "1px solid #2A2416", padding: "0 20px" }}>
+        <div style={{ maxWidth: 1200, margin: "0 auto", height: 36, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 15 }}>{tabs.find(t => t.id === tab)?.icon}</span>
+          <span style={{ color: "#A89060", fontWeight: 700, fontSize: 13, letterSpacing: "0.01em" }}>
+            {tabs.find(t => t.id === tab)?.label}
+          </span>
+          {isReadOnly && (
+            <span style={{ marginLeft: 8, fontSize: 11, color: "#D4A017", background: "rgba(212,160,23,0.1)", border: "1px solid rgba(212,160,23,0.25)", borderRadius: 6, padding: "2px 8px", fontWeight: 700 }}>
+              READ-ONLY
+            </span>
+          )}
         </div>
       </div>
 
