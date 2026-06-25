@@ -834,7 +834,7 @@ function Login({ onLogin, users }) {
   const [id, setId] = useState("");
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
-  const allUsers = users.length > 0 ? users : DEFAULT_USERS;
+  const allUsers = users;
   
   const handle = () => {
     const u = allUsers.find(u => u.id === id && u.password === pw);
@@ -857,8 +857,8 @@ function Login({ onLogin, users }) {
         <p style={{ color: "#4A3B28", fontSize: 12, margin: "0 0 28px" }}>Field Engineer Expense Management</p>
         <Card style={{ border: "1px solid #2A2416", background: "#111008" }}>
           <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#A89060", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>User ID</label>
-            <select value={id} onChange={e => setId(e.target.value)} style={inputStyle}>
-              <option value="">Select user...</option>
+            <select value={id} onChange={e => setId(e.target.value)} style={inputStyle} disabled={allUsers.length === 0}>
+              <option value="">{allUsers.length === 0 ? "Loading users..." : "Select user..."}</option>
               {allUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
             </select>
           </div>
@@ -1707,7 +1707,7 @@ export default function App() {
   const allUsers = dbUsers.length > 0 ? dbUsers : DEFAULT_USERS;
   const engineers = allUsers.filter(u => u.role === "engineer");
 
-  if (!user) return <><style>{GLOBAL_CSS}</style><Login onLogin={handleLogin} users={allUsers} /></>;
+  if (!user) return <><style>{GLOBAL_CSS}</style><Login onLogin={handleLogin} users={dbUsers} /></>;
 
   const myRequests = requests.filter(r => r.engineerId === activeUser.id);
   const myExpenses = expenses.filter(e => e.engineerId === activeUser.id);
