@@ -1765,8 +1765,20 @@ export default function App() {
             <span style={{ display: "block", width: 22, height: 2, background: "#94A3B8", borderRadius: 2 }} />
           </button>
 
+          {/* Logo + App Name */}
+          <div style={{ display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
+            <div style={{ position: "relative", height: 32, width: 32, flexShrink: 0 }}>
+              <div style={{ position: "absolute", inset: 0, borderRadius: 8, background: "linear-gradient(135deg, #1E40AF, #7C3AED)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 13, fontWeight: 800 }}>FE</div>
+              <img src="exp pro.png" alt="Logo" style={{ position: "absolute", inset: 0, height: "100%", width: "100%", borderRadius: 8, objectFit: "contain", background: "#fff", padding: 2 }} onError={(e) => e.target.style.display='none'} />
+            </div>
+            <span style={{ color: "#fff", fontWeight: 800, fontSize: 15, letterSpacing: "-0.02em" }}>FieldExpense</span>
+          </div>
+
+          {/* Divider */}
+          <span style={{ width: 1, height: 20, background: "rgba(255,255,255,0.12)", flexShrink: 0 }} />
+
           {/* Current page title */}
-          <span style={{ color: "#fff", fontWeight: 700, fontSize: 15, flex: 1 }}>
+          <span style={{ color: "#94A3B8", fontWeight: 500, fontSize: 13, flex: 1 }}>
             {tabs.find(t => t.id === tab)?.icon} {tabs.find(t => t.id === tab)?.label}
           </span>
 
