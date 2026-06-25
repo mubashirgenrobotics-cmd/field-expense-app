@@ -1681,37 +1681,99 @@ export default function App() {
     </div>
   );
 
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const handleTabClick = (id) => {
+    setTab(id);
+    setFilterStatus("all");
+    setFilterEngineer("");
+    setTabDateFilter({ mode: "all", month: monthOf(today()), from: today(), to: today() });
+    setDrawerOpen(false);
+  };
+
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-main)" }}>
       <style>{GLOBAL_CSS}</style>
 
-      {/* NAV */}
-      <div style={{ background: "#0F172A", padding: "0 24px", position: "sticky", top: 0, zIndex: 100, overflowX: "auto" }}>
-        <div className="mobile-nav-container" style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", gap: 20, height: 58, minWidth: 600 }}>
-          
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            <div style={{ position: "relative", height: 36, width: 36, flexShrink: 0 }}>
-              <div style={{ position: "absolute", inset: 0, borderRadius: 8, background: "linear-gradient(135deg, #1E40AF, #7C3AED)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 16, fontWeight: 800 }}>FE</div>
-              <img src="exp pro.png" alt="Logo" style={{ position: "absolute", inset: 0, height: "100%", width: "100%", borderRadius: 8, objectFit: "contain", background: "#fff", padding: 2 }} onError={(e) => e.target.style.display='none'} />
-            </div>
-            <span style={{ color: "#fff", fontWeight: 800, fontSize: 16 }}>FieldExpense</span>
-          </div>
+      {/* DRAWER OVERLAY */}
+      {drawerOpen && (
+        <div
+          onClick={() => setDrawerOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, backdropFilter: "blur(2px)" }}
+        />
+      )}
 
-          <div style={{ display: "flex", gap: 2, flex: 1 }}>
-            {tabs.map(t => (
-              <button key={t.id} onClick={() => { setTab(t.id); setFilterStatus("all"); setFilterEngineer(""); setTabDateFilter({ mode: "all", month: monthOf(today()), from: today(), to: today() }); }}
-                style={{ background: tab === t.id ? "rgba(59,130,246,0.2)" : "none", border: "none", borderRadius: 8, padding: "6px 12px", color: tab === t.id ? "#60A5FA" : "#94A3B8", cursor: "pointer", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, whiteSpace: "nowrap" }}>
-                {t.icon} {t.label}
-              </button>
-            ))}
+      {/* SLIDE-OUT DRAWER */}
+      <div style={{
+        position: "fixed", top: 0, left: 0, height: "100vh", width: 260,
+        background: "#0F172A", zIndex: 300, transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
+        transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)",
+        display: "flex", flexDirection: "column", boxShadow: "4px 0 24px rgba(0,0,0,0.4)"
+      }}>
+        {/* Drawer Header */}
+        <div style={{ padding: "20px 20px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ position: "relative", height: 38, width: 38, flexShrink: 0 }}>
+            <div style={{ position: "absolute", inset: 0, borderRadius: 9, background: "linear-gradient(135deg, #1E40AF, #7C3AED)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 15, fontWeight: 800 }}>FE</div>
+            <img src="exp pro.png" alt="Logo" style={{ position: "absolute", inset: 0, height: "100%", width: "100%", borderRadius: 9, objectFit: "contain", background: "#fff", padding: 2 }} onError={(e) => e.target.style.display='none'} />
           </div>
+          <div>
+            <div style={{ color: "#fff", fontWeight: 800, fontSize: 15 }}>FieldExpense</div>
+            <div style={{ color: "#64748B", fontSize: 11, marginTop: 1 }}>{user.name} · {user.role}</div>
+          </div>
+          <button onClick={() => setDrawerOpen(false)} style={{ marginLeft: "auto", background: "none", border: "none", color: "#64748B", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 4 }}>✕</button>
+        </div>
+
+        {/* Nav Items */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "12px 10px" }}>
+          {tabs.map(t => (
+            <button key={t.id} onClick={() => handleTabClick(t.id)} style={{
+              width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+              background: tab === t.id ? "rgba(59,130,246,0.18)" : "none",
+              border: "none", borderRadius: 10, padding: "11px 14px",
+              color: tab === t.id ? "#60A5FA" : "#94A3B8",
+              cursor: "pointer", fontSize: 14, fontWeight: tab === t.id ? 700 : 500,
+              marginBottom: 2, transition: "background 0.15s"
+            }}>
+              <span style={{ fontSize: 18, width: 24, textAlign: "center" }}>{t.icon}</span>
+              <span>{t.label}</span>
+              {tab === t.id && <span style={{ marginLeft: "auto", width: 4, height: 20, borderRadius: 2, background: "#3B82F6" }} />}
+            </button>
+          ))}
+        </div>
+
+        {/* Drawer Footer */}
+        <div style={{ padding: "14px 10px", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+          {!permGranted && Notification?.permission !== "denied" && (
+            <button onClick={() => requestNotifPermission().then(() => {})} style={{ width: "100%", background: "rgba(245,158,11,0.12)", border: "1px solid #F59E0B", borderRadius: 10, color: "#F59E0B", padding: "9px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>🔔 Enable Alerts</button>
+          )}
+          <button onClick={handleLogout} style={{ width: "100%", background: "rgba(255,255,255,0.06)", border: "none", borderRadius: 10, color: "#94A3B8", padding: "9px 14px", cursor: "pointer", fontSize: 13, textAlign: "left" }}>← Sign out</button>
+        </div>
+      </div>
+
+      {/* TOP NAV BAR (slim) */}
+      <div style={{ background: "#0F172A", padding: "0 20px", position: "sticky", top: 0, zIndex: 100 }}>
+        <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", gap: 14, height: 56 }}>
+          
+          {/* Hamburger Button */}
+          <button
+            onClick={() => setDrawerOpen(true)}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex", flexDirection: "column", gap: 5, flexShrink: 0 }}
+            aria-label="Open menu"
+          >
+            <span style={{ display: "block", width: 22, height: 2, background: "#94A3B8", borderRadius: 2 }} />
+            <span style={{ display: "block", width: 22, height: 2, background: "#94A3B8", borderRadius: 2 }} />
+            <span style={{ display: "block", width: 22, height: 2, background: "#94A3B8", borderRadius: 2 }} />
+          </button>
+
+          {/* Current page title */}
+          <span style={{ color: "#fff", fontWeight: 700, fontSize: 15, flex: 1 }}>
+            {tabs.find(t => t.id === tab)?.icon} {tabs.find(t => t.id === tab)?.label}
+          </span>
+
+          {/* Right side actions */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            <Avatar user={user} size={32} />
+            <Avatar user={user} size={30} />
             <NotifBell count={unread} onClick={() => { setShowNotifPanel(v => !v); markRead(); }} />
-            {!permGranted && Notification?.permission !== "denied" && (
-              <button onClick={() => requestNotifPermission().then(() => {})} title="Enable push notifications" style={{ background: "rgba(245,158,11,0.15)", border: "1px solid #F59E0B", borderRadius: 8, color: "#F59E0B", padding: "5px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>Enable Alerts</button>
-            )}
-            <button onClick={handleLogout} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 8, color: "#94A3B8", padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>Sign out</button>
           </div>
         </div>
       </div>
