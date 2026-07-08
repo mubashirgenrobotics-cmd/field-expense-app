@@ -1559,7 +1559,7 @@ function ReceivedFundList({ funds, onEdit, onDelete, filter, isReadOnly }) {
   );
 }
 
-function AdminSummary({ expenses, requests, receivedFunds, dashFilter, engineers, onViewEngineer }) {
+function FundSummaryCard({ expenses, requests, receivedFunds, dashFilter }) {
   const mReqs = requests.filter(r => inRange(r.date, dashFilter));
   const mExps = expenses.filter(e => inRange(e.date, dashFilter));
   const mFunds = receivedFunds.filter(f => inRange(f.date, dashFilter));
@@ -1571,58 +1571,63 @@ function AdminSummary({ expenses, requests, receivedFunds, dashFilter, engineers
   const remainingReceived = totalReceived - totalDisbursed;
 
   return (
-    <>
-      <Card style={{ marginBottom: 20, background: "linear-gradient(135deg,#0F172A,#1E1B4B)", border: "none", color: "#fff" }}>
-        <div style={{ display: "flex", justifyContent: "space-around", alignItems: "center", flexWrap: "wrap", gap: 16, marginBottom: totalReceived > 0 ? 16 : 0 }}>
-          {[
-            { label: "Received Fund", value: fmt(totalReceived), color: "#34D399" },
-            { label: "Distributed", value: fmt(totalDisbursed), color: "#F59E0B" },
-            { label: "Total Submitted Bills", value: fmt(totalSubmittedBills), color: "#EF4444", sub: "approved bills sum" },
-            { label: "Pending Bills", value: fmt(Math.max(0, unsubmitted)), color: unsubmitted < 0 ? "#EF4444" : "#FBBF24", sub: "distributed − submitted" },
-            { label: "Fund Balance", value: fmt(remainingReceived), color: remainingReceived < 0 ? "#EF4444" : "#D4A017", sub: "received − distributed" },
-          ].map((item, i) => (
-            <div key={i} style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{item.label}</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: item.color }}>{item.value}</div>
-              {item.sub && <div style={{ fontSize: 10, color: "#64748B" }}>{item.sub}</div>}
-            </div>
-          ))}
-        </div>
-        {totalReceived > 0 && (
-          <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 8, height: 8, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${Math.min(100, (totalDisbursed / totalReceived) * 100)}%`, background: "linear-gradient(90deg,#8A6800,#D4A017)", borderRadius: 8, transition: "width 0.5s" }} />
+    <Card style={{ marginBottom: 20, background: "linear-gradient(135deg,#0F172A,#1E1B4B)", border: "none", color: "#fff" }}>
+      <div style={{ display: "flex", justifyContent: "space-around", alignItems: "center", flexWrap: "wrap", gap: 16, marginBottom: totalReceived > 0 ? 16 : 0 }}>
+        {[
+          { label: "Received Fund", value: fmt(totalReceived), color: "#34D399" },
+          { label: "Distributed", value: fmt(totalDisbursed), color: "#F59E0B" },
+          { label: "Total Submitted Bills", value: fmt(totalSubmittedBills), color: "#EF4444", sub: "approved bills sum" },
+          { label: "Pending Bills", value: fmt(Math.max(0, unsubmitted)), color: unsubmitted < 0 ? "#EF4444" : "#FBBF24", sub: "distributed − submitted" },
+          { label: "Fund Balance", value: fmt(remainingReceived), color: remainingReceived < 0 ? "#EF4444" : "#D4A017", sub: "received − distributed" },
+        ].map((item, i) => (
+          <div key={i} style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{item.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: item.color }}>{item.value}</div>
+            {item.sub && <div style={{ fontSize: 10, color: "#64748B" }}>{item.sub}</div>}
           </div>
-        )}
-      </Card>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14, marginBottom: 24 }}>
-        {engineers.map(eng => {
-          const engReqs = mReqs.filter(r => r.engineerId === eng.id);
-          const engExps = mExps.filter(e => e.engineerId === eng.id);
-          const funds = engReqs.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
-          const approvedBills = engExps.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
-          const pendingBills = engExps.filter(e => e.status === "pending").reduce((s, e) => s + e.amount, 0);
-          const bal = funds - approvedBills;
-          return (
-            <Card key={eng.id} style={{ padding: 16, cursor: "pointer", transition: "transform 0.15s" }} onClick={() => onViewEngineer(eng)} onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"} onMouseLeave={e => e.currentTarget.style.transform = "none"}>
-              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
-                <Avatar user={eng} size={36} />
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{eng.name}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-light)" }}>{eng.department}</div>
-                </div>
-              </div>
-              <div style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Funds Distributed</span><span style={{ color: "#10B981", fontWeight: 700 }}>{fmt(funds)}</span></div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Submitted Bills</span><span style={{ color: "#EF4444", fontWeight: 700 }}>{fmt(approvedBills)}</span></div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Pending Bills</span><span style={{ color: "#F59E0B", fontWeight: 700 }}>{fmt(pendingBills)}</span></div>
-                <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, borderTop: "1px solid var(--border)" }}><span style={{ color: "var(--text-main)", fontWeight: 600 }}>Balance</span><span style={{ color: bal < 0 ? "#EF4444" : "#D4A017", fontWeight: 700 }}>{fmt(bal)}</span></div>
-              </div>
-            </Card>
-          );
-        })}
+        ))}
       </div>
-    </>
+      {totalReceived > 0 && (
+        <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 8, height: 8, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${Math.min(100, (totalDisbursed / totalReceived) * 100)}%`, background: "linear-gradient(90deg,#8A6800,#D4A017)", borderRadius: 8, transition: "width 0.5s" }} />
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function EngineerGrid({ expenses, requests, dashFilter, engineers, onViewEngineer }) {
+  const mReqs = requests.filter(r => inRange(r.date, dashFilter));
+  const mExps = expenses.filter(e => inRange(e.date, dashFilter));
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14, marginBottom: 24 }}>
+      {engineers.map(eng => {
+        const engReqs = mReqs.filter(r => r.engineerId === eng.id);
+        const engExps = mExps.filter(e => e.engineerId === eng.id);
+        const funds = engReqs.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
+        const approvedBills = engExps.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
+        const pendingBills = engExps.filter(e => e.status === "pending").reduce((s, e) => s + e.amount, 0);
+        const bal = funds - approvedBills;
+        return (
+          <Card key={eng.id} style={{ padding: 16, cursor: "pointer", transition: "transform 0.15s" }} onClick={() => onViewEngineer(eng)} onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"} onMouseLeave={e => e.currentTarget.style.transform = "none"}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
+              <Avatar user={eng} size={36} />
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{eng.name}</div>
+                <div style={{ fontSize: 11, color: "var(--text-light)" }}>{eng.department}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Funds Distributed</span><span style={{ color: "#10B981", fontWeight: 700 }}>{fmt(funds)}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Submitted Bills</span><span style={{ color: "#EF4444", fontWeight: 700 }}>{fmt(approvedBills)}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Pending Bills</span><span style={{ color: "#F59E0B", fontWeight: 700 }}>{fmt(pendingBills)}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, borderTop: "1px solid var(--border)" }}><span style={{ color: "var(--text-main)", fontWeight: 600 }}>Balance</span><span style={{ color: bal < 0 ? "#EF4444" : "#D4A017", fontWeight: 700 }}>{fmt(bal)}</span></div>
+            </div>
+          </Card>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1997,8 +2002,9 @@ export default function App() {
                   );
                 })()}
 
-                <AdminSummary expenses={expenses} requests={requests} receivedFunds={receivedFunds} dashFilter={dashFilter} engineers={engineers} onViewEngineer={setViewingAsEngineer} />
+                <FundSummaryCard expenses={expenses} requests={requests} receivedFunds={receivedFunds} dashFilter={dashFilter} />
                 <LocationExpenseSummary expenses={expenses} customers={customers} allMonths={allMonths} isAdmin={isAdmin} engineers={engineers} />
+                <EngineerGrid expenses={expenses} requests={requests} dashFilter={dashFilter} engineers={engineers} onViewEngineer={setViewingAsEngineer} />
               </>
             ) : (
               <>
