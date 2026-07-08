@@ -1184,10 +1184,13 @@ function ReceivedFundModal({ onSave, onClose, editItem }) {
   );
 }
 
-function AdminReviewModal({ item, type, onClose, onApprove, onReject }) {
+function AdminReviewModal({ item, type, onClose, onApprove, onReject, customers }) {
   const [amount, setAmount] = useState(item.amount);
+  const [customer, setCustomer] = useState(item.customer || "");
   const [comment, setComment] = useState("");
   const amountChanged = parseFloat(amount) !== item.amount;
+  const customerChanged = item.customer !== undefined && customer !== (item.customer || "");
+  const changed = amountChanged || customerChanged;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
       <Card style={{ width: "100%", maxWidth: 420 }}>
@@ -1195,7 +1198,6 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject }) {
         <div style={{ background: "var(--input-bg)", padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 13, color: "var(--text-main)" }}>
           <strong>Engineer:</strong> {item.engineerName}<br />
           <strong>Reason:</strong> {item.reason || item.description}<br />
-          {item.customer && <><strong>Customer:</strong> {item.customer}<br /></>}
           <strong>Date:</strong> {item.date}<br />
           <strong>Original Amount:</strong> <span style={{ color: "#D4A017", fontWeight: 700 }}>{fmt(item.amount)}</span>
         </div>
@@ -1205,13 +1207,23 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject }) {
             <span style={{ color: "#92400E", fontWeight: 600 }}>⚠️ Amount edited:</span> <span style={{ color: "#78350F" }}>{fmt(item.amount)} → {fmt(parseFloat(amount) || 0)}</span>
           </div>
         )}
-        <Field label={`Admin Comment ${amountChanged ? "(required)" : "(optional)"}`}>
+        {item.customer !== undefined && (
+          <Field label="Customer">
+            <CustomerDropdown value={customer} onChange={setCustomer} customers={customers} />
+          </Field>
+        )}
+        {customerChanged && (
+          <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 13 }}>
+            <span style={{ color: "#92400E", fontWeight: 600 }}>⚠️ Customer edited:</span> <span style={{ color: "#78350F" }}>{item.customer || "(none)"} → {customer || "(none)"}</span>
+          </div>
+        )}
+        <Field label={`Admin Comment ${changed ? "(required)" : "(optional)"}`}>
           <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder="Add a note or reason..." rows={3} style={{ ...inputStyle, resize: "vertical" }} />
         </Field>
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
           <Button onClick={() => { onReject(item.id, comment); onClose(); }} variant="danger" style={{ flex: 1 }}>Reject</Button>
-          <Button onClick={() => { onApprove(item.id, parseFloat(amount), comment, item.amount); onClose(); }} variant="success" disabled={amountChanged && !comment.trim()} style={{ flex: 1 }}>Approve</Button>
+          <Button onClick={() => { onApprove(item.id, parseFloat(amount), comment, item.amount, customer, item.customer); onClose(); }} variant="success" disabled={changed && !comment.trim()} style={{ flex: 1 }}>Approve</Button>
         </div>
       </Card>
     </div>
@@ -1382,6 +1394,7 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
       if (!inRange(e.date, filter.dateRange || { mode: "all" })) return false;
       if (filter.status !== "all" && e.status !== filter.status) return false;
       if (isAdmin && filter.engineer && e.engineerId !== filter.engineer) return false;
+      if (filter.customer && e.customer !== filter.customer) return false;
       return true;
     })
     .sort((a, b) => {
@@ -1396,7 +1409,7 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
       {filtered.map(exp => {
         const c = cat(exp.category);
         const hasEditLog = exp.editLog && exp.editLog.length > 0;
-        const amountWasEdited = hasEditLog && exp.editLog.some(entry => parseFloat(entry.before) !== parseFloat(entry.after));
+        const amountWasEdited = hasEditLog && exp.editLog.some(entry => parseFloat(entry.before) !== parseFloat(entry.after) || (entry.customerBefore !== undefined && entry.customerBefore !== entry.customerAfter));
         return (
           <div key={exp.id} style={{ padding: "14px 16px", background: "var(--input-bg)", borderRadius: 12, border: "1px solid var(--border)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -1431,6 +1444,9 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
                   <div key={i} style={{ fontSize: 12, color: "#78350F", background: "#FFFBEB", borderRadius: 6, padding: "6px 10px", marginBottom: 4, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                     <span>📝 <strong>{entry.date}</strong></span>
                     <span>{fmt(entry.before)} → <strong>{fmt(entry.after)}</strong></span>
+                    {entry.customerBefore !== undefined && entry.customerBefore !== entry.customerAfter && (
+                      <span>Customer: {entry.customerBefore || "(none)"} → <strong>{entry.customerAfter || "(none)"}</strong></span>
+                    )}
                     {entry.comment && <span style={{ color: "#92400E" }}>"{entry.comment}"</span>}
                   </div>
                 ))}
@@ -1467,6 +1483,8 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
         
         const originalAmt = hasEditLog && req.editLog[0].before !== undefined ? req.editLog[0].before : req.amount;
         const isEditedAmt = parseFloat(originalAmt) !== parseFloat(req.amount);
+        const wasCustomerEdited = hasEditLog && req.editLog.some(entry => entry.customerBefore !== undefined && entry.customerBefore !== entry.customerAfter);
+        const wasEdited = isEditedAmt || wasCustomerEdited;
 
         return (
           <div key={req.id} style={{ padding: "14px 16px", background: "var(--input-bg)", borderRadius: 12, border: "1px solid var(--border)" }}>
@@ -1484,7 +1502,7 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
                     <span style={{ fontWeight: 700, fontSize: 15, color: "#D4A017" }}>{fmt(req.amount)}</span>
                   )}
                   <Badge status={req.status} />
-                  {isEditedAmt && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>EDITED</span>}
+                  {wasEdited && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>EDITED</span>}
                 </div>
                 
                 <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{req.reason}</div>
@@ -1640,6 +1658,7 @@ export default function App() {
   const [dashFilter, setDashFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterEngineer, setFilterEngineer] = useState("");
+  const [filterCustomer, setFilterCustomer] = useState("");
   const [tabDateFilter, setTabDateFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
   const [rfDateFilter, setRfDateFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
 
@@ -1747,12 +1766,14 @@ export default function App() {
   const saveCustomer = async (c) => await setDoc(doc(db, "customers", c.id), c);
   const deleteCustomer = async (id) => await deleteDoc(doc(db, "customers", id));
 
-  const approveItem = async (col, id, finalAmount, comment, originalAmount) => {
+  const approveItem = async (col, id, finalAmount, comment, originalAmount, finalCustomer, originalCustomer) => {
     const updates = { status: "approved", amount: finalAmount };
     const existing = col === "expenses" ? expenses.find(e => e.id === id) : requests.find(r => r.id === id);
-    if (finalAmount !== originalAmount || comment) {
+    const customerChanged = originalCustomer !== undefined && finalCustomer !== (originalCustomer || "");
+    if (customerChanged) updates.customer = finalCustomer;
+    if (finalAmount !== originalAmount || customerChanged || comment) {
       const log = [...(existing?.editLog || [])];
-      log.push({ date: today(), before: originalAmount, after: finalAmount, comment: comment || "" });
+      log.push({ date: today(), before: originalAmount, after: finalAmount, comment: comment || "", customerBefore: customerChanged ? (originalCustomer || "") : undefined, customerAfter: customerChanged ? finalCustomer : undefined });
       updates.editLog = log;
     }
     await updateDoc(doc(db, col, id), updates);
@@ -1789,7 +1810,7 @@ export default function App() {
   ];
   const tabs = (user.role === "admin" && !viewingAsEngineer) ? adminTabs : engTabs;
 
-  const tabFilterUI = (
+  const renderTabFilterUI = (showCustomerFilter) => (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
       {isAdmin && <select value={filterEngineer} onChange={e => setFilterEngineer(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}>
         <option value="">All Engineers</option>
@@ -1801,6 +1822,12 @@ export default function App() {
         <option value="approved">Approved</option>
         <option value="rejected">Rejected</option>
       </select>
+      {showCustomerFilter && isAdmin && (
+        <select value={filterCustomer} onChange={e => setFilterCustomer(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}>
+          <option value="">All Customers</option>
+          {customers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+        </select>
+      )}
       <DateRangeFilter filter={tabDateFilter} onChange={setTabDateFilter} allMonths={allMonths} />
     </div>
   );
@@ -1949,28 +1976,29 @@ export default function App() {
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 24 }}>
-                  {(() => {
-                    const mR = requests.filter(r => inRange(r.date, dashFilter));
-                    const mE = expenses.filter(e => inRange(e.date, dashFilter));
-                    const mF = receivedFunds.filter(f => inRange(f.date, dashFilter));
-                    return [
-                      { label: "Received Fund", value: fmt(mF.reduce((s, f) => s + f.amount, 0)), icon: "💵", color: "#10B981" },
-                      { label: "Pending Fund Requests", value: mR.filter(r => r.status === "pending").length, icon: "⏳", color: "#F59E0B" },
-                      { label: "Pending Expenses", value: mE.filter(e => e.status === "pending").length, icon: "📋", color: "#EF4444" },
-                      { label: "Total Distributed", value: fmt(mR.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0)), icon: "💰", color: "#D4A017" },
-                    ];
-                  })().map(s => (
-                    <Card key={s.label} style={{ padding: "18px 20px" }}>
-                      <div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div>
-                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{s.label}</div>
-                    </Card>
-                  ))}
-                </div>
+                {(() => {
+                  const mR = requests.filter(r => inRange(r.date, dashFilter));
+                  const mE = expenses.filter(e => inRange(e.date, dashFilter));
+                  const pendingReqCount = mR.filter(r => r.status === "pending").length;
+                  const pendingExpCount = mE.filter(e => e.status === "pending").length;
+                  return (
+                    <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 14px" }}>
+                        <span style={{ fontSize: 16 }}>⏳</span>
+                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Pending Fund Requests</span>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: "#F59E0B" }}>{pendingReqCount}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 14px" }}>
+                        <span style={{ fontSize: 16 }}>📋</span>
+                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Pending Expenses</span>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: "#EF4444" }}>{pendingExpCount}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
 
-                <LocationExpenseSummary expenses={expenses} customers={customers} allMonths={allMonths} isAdmin={isAdmin} engineers={engineers} />
                 <AdminSummary expenses={expenses} requests={requests} receivedFunds={receivedFunds} dashFilter={dashFilter} engineers={engineers} onViewEngineer={setViewingAsEngineer} />
+                <LocationExpenseSummary expenses={expenses} customers={customers} allMonths={allMonths} isAdmin={isAdmin} engineers={engineers} />
               </>
             ) : (
               <>
@@ -2072,7 +2100,7 @@ export default function App() {
               <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Fund Requests</h2>
               {!isAdmin && !isReadOnly && <Button onClick={() => setShowFundForm(true)}>💰 New Request</Button>}
             </div>
-            {tabFilterUI}
+            {renderTabFilterUI(false)}
             <Card>
               <RequestList requests={requests} isAdmin={isAdmin} engineerId={activeUser.id}
                 filter={{ dateRange: tabDateFilter, status: filterStatus, engineer: filterEngineer }}
@@ -2090,7 +2118,7 @@ export default function App() {
               <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>{isAdmin ? "All Expenses" : "My Expenses"}</h2>
               {!isAdmin && !isReadOnly && <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>}
             </div>
-            {tabFilterUI}
+            {renderTabFilterUI(true)}
             <Card>
               <ExpenseList expenses={isAdmin ? expenses : myExpenses}
                 onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }}
@@ -2099,7 +2127,7 @@ export default function App() {
                 onDelete={exp => { setDeleteItem(exp); setDeleteItemType("expense"); }}
                 isAdmin={isAdmin}
                 isReadOnly={isReadOnly}
-                filter={{ dateRange: tabDateFilter, status: filterStatus, engineer: filterEngineer }} />
+                filter={{ dateRange: tabDateFilter, status: filterStatus, engineer: filterEngineer, customer: filterCustomer }} />
             </Card>
           </>
         )}
@@ -2121,8 +2149,8 @@ export default function App() {
       {showReportModal && isAdmin && <ExpenseReportModal engineers={engineers} expenses={expenses} receivedFunds={receivedFunds} requests={requests} onClose={() => setShowReportModal(false)} />}
 
       {reviewItem && !isReadOnly && (
-        <AdminReviewModal item={reviewItem} type={reviewItem.type} onClose={() => setReviewItem(null)}
-          onApprove={(id, amt, comment, origAmt) => approveItem(reviewItem.type === "expense" ? "expenses" : "requests", id, amt, comment, origAmt)}
+        <AdminReviewModal item={reviewItem} type={reviewItem.type} onClose={() => setReviewItem(null)} customers={customers}
+          onApprove={(id, amt, comment, origAmt, finalCustomer, origCustomer) => approveItem(reviewItem.type === "expense" ? "expenses" : "requests", id, amt, comment, origAmt, finalCustomer, origCustomer)}
           onReject={(id, comment) => rejectItem(reviewItem.type === "expense" ? "expenses" : "requests", id, comment)} />
       )}
 
