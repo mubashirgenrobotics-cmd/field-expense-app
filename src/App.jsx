@@ -1,6 +1,77 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from "firebase/firestore";
-import { db } from "./firebase";
+
+// ─── DATA LAYER — PLUG IN YOUR OWN BACKEND HERE ──────────────────────────────
+// Firebase/Firestore has been removed. Everything below keeps the exact same
+// call shape the rest of the app already uses — collection(), doc(),
+// onSnapshot(), setDoc(), updateDoc(), deleteDoc() — so nothing else in this
+// file needs to change. Right now it persists to localStorage (so the app
+// keeps working on a single device/browser). To wire up your own backend
+// (REST API, Supabase, a custom server, etc.), replace the internals of the
+// functions in this block only, keeping the same function names/signatures.
+
+const STORAGE_PREFIX = "fieldExpensePro:";
+const dataListeners = {};
+
+function readCollection(name) {
+  try {
+    const raw = localStorage.getItem(STORAGE_PREFIX + name);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCollection(name, records) {
+  localStorage.setItem(STORAGE_PREFIX + name, JSON.stringify(records));
+}
+
+function notifyCollection(name) {
+  const records = readCollection(name);
+  const snapshot = { docs: Object.values(records).map(record => ({ data: () => record })) };
+  (dataListeners[name] || []).forEach(cb => cb(snapshot));
+}
+
+function collection(_db, name) { return name; }
+function doc(_db, name, id) { return { name, id }; }
+
+function onSnapshot(name, cb) {
+  if (!dataListeners[name]) dataListeners[name] = new Set();
+  dataListeners[name].add(cb);
+  notifyCollection(name);
+
+  // Keeps multiple tabs on the same device roughly in sync. Remove this if
+  // your replacement backend has its own real-time sync mechanism.
+  const onStorage = (e) => { if (e.key === STORAGE_PREFIX + name) notifyCollection(name); };
+  window.addEventListener("storage", onStorage);
+
+  return () => {
+    dataListeners[name].delete(cb);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+async function setDoc(ref, data) {
+  const records = readCollection(ref.name);
+  records[ref.id] = data;
+  writeCollection(ref.name, records);
+  notifyCollection(ref.name);
+}
+
+async function updateDoc(ref, updates) {
+  const records = readCollection(ref.name);
+  records[ref.id] = { ...(records[ref.id] || {}), ...updates };
+  writeCollection(ref.name, records);
+  notifyCollection(ref.name);
+}
+
+async function deleteDoc(ref) {
+  const records = readCollection(ref.name);
+  delete records[ref.id];
+  writeCollection(ref.name, records);
+  notifyCollection(ref.name);
+}
+
+const db = {};
 
 // ─── GLOBAL STYLES (FONTS & DARK MODE & MOBILE COMPACT) ──────────────────────
 const GLOBAL_CSS = `
@@ -770,14 +841,29 @@ function CustomerDropdown({ value, onChange, customers }) {
   const select = (c) => { onChange(c.name); setSearch(c.name); setOpen(false); };
   const clear = () => { onChange(""); setSearch(""); };
 
+  // Typing only filters the list; the actual selected value is cleared until
+  // the person picks a real customer, so a typed name can never be saved as-is.
+  const handleTyping = (e) => {
+    const v = e.target.value;
+    setSearch(v);
+    if (value) onChange("");
+    setOpen(true);
+  };
+
+  const handleBlur = () => {
+    // If what's left in the box doesn't match the confirmed selection, reset the text.
+    setTimeout(() => { if (search !== (value || "")) setSearch(value || ""); }, 150);
+  };
+
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <div style={{ display: "flex", gap: 6 }}>
         <input
           value={search}
-          onChange={e => { setSearch(e.target.value); onChange(e.target.value); setOpen(true); }}
+          onChange={handleTyping}
           onFocus={() => setOpen(true)}
-          placeholder="Search or type customer name..."
+          onBlur={handleBlur}
+          placeholder="Select customer from list..."
           style={{ ...inputStyle, flex: 1 }}
         />
         {search && <button onClick={clear} style={{ background: "none", border: "none", color: "var(--text-light)", cursor: "pointer", fontSize: 16, padding: "0 6px" }}>✕</button>}
@@ -797,7 +883,7 @@ function CustomerDropdown({ value, onChange, customers }) {
       )}
       {open && search && filtered.length === 0 && (
         <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "var(--bg-card)", border: "1.5px solid var(--border)", borderRadius: 10, zIndex: 500, padding: "10px 14px", color: "var(--text-light)", fontSize: 13, marginTop: 4 }}>
-          No match — "{search}" will be used as-is
+          No matching customer. Ask admin to add it in Database first.
         </div>
       )}
     </div>
@@ -1381,6 +1467,7 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
       {filtered.map(exp => {
         const c = cat(exp.category);
         const hasEditLog = exp.editLog && exp.editLog.length > 0;
+        const amountWasEdited = hasEditLog && exp.editLog.some(entry => parseFloat(entry.before) !== parseFloat(entry.after));
         return (
           <div key={exp.id} style={{ padding: "14px 16px", background: "var(--input-bg)", borderRadius: 12, border: "1px solid var(--border)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -1389,7 +1476,7 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2, flexWrap: "wrap" }}>
                   <span style={{ fontWeight: 600, fontSize: 14, color: "var(--text-main)" }}>{exp.description}</span>
                   <Badge status={exp.status} />
-                  {hasEditLog && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>EDITED</span>}
+                  {amountWasEdited && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>EDITED</span>}
                 </div>
                 <div style={{ fontSize: 12, color: "var(--text-light)" }}>
                   {c.label} · {exp.date}
@@ -1404,7 +1491,7 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
                   {isAdmin && exp.attachment && <Button small variant="ghost" onClick={() => downloadAttachment(exp)}>⬇️</Button>}
                   
                   {!isReadOnly && !isAdmin && exp.status === "pending" && <Button small variant="outline" onClick={() => onEdit(exp)}>Edit</Button>}
-                  {!isReadOnly && isAdmin && exp.status === "pending" && <Button small variant="primary" onClick={() => onReview(exp)}>Review</Button>}
+                  {!isReadOnly && isAdmin && exp.status !== "rejected" && <Button small variant="primary" onClick={() => onReview(exp)}>{exp.status === "approved" ? "Edit" : "Review"}</Button>}
                   {!isReadOnly && isAdmin && <Button small variant="danger" onClick={() => onDelete(exp)}>🗑️</Button>}
                 </div>
               </div>
@@ -1468,7 +1555,7 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
                     <span style={{ fontWeight: 700, fontSize: 15, color: "#D4A017" }}>{fmt(req.amount)}</span>
                   )}
                   <Badge status={req.status} />
-                  {hasEditLog && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>EDITED</span>}
+                  {isEditedAmt && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>EDITED</span>}
                 </div>
                 
                 <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{req.reason}</div>
@@ -1476,7 +1563,7 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
                 {isAdmin && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 2 }}>By: {req.engineerName} · {req.date}</div>}
               </div>
               <div style={{ flexShrink: 0, display: "flex", gap: 6 }}>
-                {!isReadOnly && isAdmin && req.status === "pending" && <Button small variant="primary" onClick={() => onReview(req)}>Review</Button>}
+                {!isReadOnly && isAdmin && req.status !== "rejected" && <Button small variant="primary" onClick={() => onReview(req)}>{req.status === "approved" ? "Edit" : "Review"}</Button>}
                 {!isReadOnly && isAdmin && <Button small variant="danger" onClick={() => onDelete(req)}>🗑️</Button>}
               </div>
             </div>
@@ -1630,6 +1717,7 @@ export default function App() {
   // ── NOTIFICATIONS ──
   const { toasts, dismissToast, notifHistory, unread, addNotif, clearHistory, markRead, permGranted, stopSound, urgentAlert } = useNotifications(user);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Track previous snapshot states to detect real changes
   const prevExpenses = useRef(null);
@@ -1787,8 +1875,6 @@ export default function App() {
       <DateRangeFilter filter={tabDateFilter} onChange={setTabDateFilter} allMonths={allMonths} />
     </div>
   );
-
-  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const handleTabClick = (id) => {
     setTab(id);
