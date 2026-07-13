@@ -532,6 +532,69 @@ function SimplePieChart({ data, size = 160 }) {
   );
 }
 
+function SimpleColumnChart({ data, height = 220 }) {
+  if (!data || data.length === 0 || data.every(d => d.value === 0)) {
+    return <div style={{ padding: 32, textAlign: "center", color: "var(--text-light)", fontSize: 13 }}>No Data</div>;
+  }
+
+  const total = data.reduce((s, d) => s + d.value, 0);
+  const shown = data.filter(d => d.value > 0).sort((a, b) => b.value - a.value);
+  const max = Math.max(...shown.map(d => d.value));
+
+  // Round the axis top up to a "nice" number (1/2/2.5/5/10 x a power of ten)
+  const niceMax = (() => {
+    const magnitude = Math.pow(10, Math.floor(Math.log10(max || 1)));
+    for (const step of [1, 2, 2.5, 5, 10]) {
+      if (max <= step * magnitude) return step * magnitude;
+    }
+    return 10 * magnitude;
+  })();
+
+  const padTop = 26, padBottom = 40, padSide = 44;
+  const plotH = height - padTop - padBottom;
+  const gap = 28;
+  const barCount = shown.length;
+  const width = Math.max(340, barCount * 100);
+  const barAreaW = width - padSide * 2;
+  const barW = Math.min(70, (barAreaW - gap * (barCount - 1)) / barCount);
+  const usedW = barCount * barW + (barCount - 1) * gap;
+  const startX = padSide + (barAreaW - usedW) / 2;
+  const gridSteps = [0, 0.25, 0.5, 0.75, 1];
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height, display: "block" }}>
+        {gridSteps.map((g, i) => {
+          const y = padTop + plotH * (1 - g);
+          return (
+            <g key={i}>
+              <line x1={padSide} y1={y} x2={width - padSide + 10} y2={y} stroke="var(--border)" strokeWidth="1" strokeDasharray={g === 0 ? "0" : "3 4"} />
+              <text x={padSide - 6} y={y + 3} fontSize="9" fill="var(--text-light)" textAnchor="end">{fmt(niceMax * g).slice(0, -3)}</text>
+            </g>
+          );
+        })}
+        {shown.map((d, i) => {
+          const x = startX + i * (barW + gap);
+          const barH = niceMax > 0 ? (d.value / niceMax) * plotH : 0;
+          const y = padTop + plotH - barH;
+          return (
+            <g key={i}>
+              <rect x={x} y={y} width={barW} height={Math.max(barH, 2)} rx={5} fill={d.color} />
+              <text x={x + barW / 2} y={y - 8} fontSize="11" fontWeight="700" fill="var(--text-main)" textAnchor="middle">{fmt(d.value).slice(0, -3)}</text>
+              <text x={x + barW / 2} y={padTop + plotH + 18} fontSize="11" fontWeight="600" fill="var(--text-muted)" textAnchor="middle">{d.label}</text>
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, background: "rgba(212,160,23,0.1)", padding: "8px 10px", borderRadius: 8, marginTop: 6, border: "1px solid rgba(212,160,23,0.25)" }}>
+        <span style={{ color: "#D4A017", fontWeight: 800 }}>Total</span>
+        <strong style={{ color: "#D4A017", fontWeight: 800 }}>{fmt(total)}</strong>
+      </div>
+
+    </div>
+  );
+}
+
 function LocationExpenseSummary({ expenses, customers, allMonths, isAdmin, engineers }) {
   const [filterMonth, setFilterMonth] = useState("all");
   const [selLoc, setSelLoc] = useState("all");
@@ -583,21 +646,19 @@ function LocationExpenseSummary({ expenses, customers, allMonths, isAdmin, engin
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 24 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
         <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)", marginBottom: 16, textAlign: "center" }}>Expense Share by Location</div>
           <SimplePieChart data={locData} />
         </div>
 
         <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20 }}>
-           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-             <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)" }}>Category Breakdown</div>
-             <select value={selLoc} onChange={e => setSelLoc(e.target.value)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--input-bg)", color: "var(--text-main)", fontSize: 12 }}>
-               <option value="all">All Locations</option>
-               {locations.map(l => <option key={l} value={l}>{l}</option>)}
-             </select>
-           </div>
-          <SimplePieChart data={catData} />
+           <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)", marginBottom: 16 }}>Category Breakdown</div>
+          <SimpleColumnChart data={catData} />
+          <select value={selLoc} onChange={e => setSelLoc(e.target.value)} style={{ marginTop: 14, width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--input-bg)", color: "var(--text-main)", fontSize: 13 }}>
+            <option value="all">All Locations</option>
+            {locations.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
         </div>
       </div>
     </Card>
