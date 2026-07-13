@@ -595,9 +595,9 @@ function SimpleColumnChart({ data, height = 220 }) {
   );
 }
 
-function LocationExpenseSummary({ expenses, customers, allMonths, isAdmin, engineers }) {
+function CustomerExpenseSummary({ expenses, customers, allMonths, isAdmin, engineers }) {
   const [filterMonth, setFilterMonth] = useState("all");
-  const [selLoc, setSelLoc] = useState("all");
+  const [selCust, setSelCust] = useState("all");
   const [selEng, setSelEng] = useState("all");
 
   const filtered = expenses.filter(e => 
@@ -605,23 +605,17 @@ function LocationExpenseSummary({ expenses, customers, allMonths, isAdmin, engin
     e.status === "approved" &&
     (selEng === "all" || e.engineerId === selEng)
   );
-  
-  const getLoc = (exp) => {
-    const c = customers.find(c => c.name === exp.customer);
-    return c?.location || "Unknown Location";
-  };
-  
-  const expsWithLoc = filtered.map(e => ({ ...e, location: getLoc(e) }));
-  const locations = [...new Set(expsWithLoc.map(e => e.location))];
+
+  const custNames = [...new Set(filtered.map(e => e.customer || "Unassigned"))].sort((a, b) => a.localeCompare(b));
   const chartColors = ["#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#EF4444", "#14B8A6", "#F43F5E", "#0EA5E9"];
 
-  const locData = locations.map((loc, i) => ({
-    label: loc,
-    value: expsWithLoc.filter(e => e.location === loc).reduce((s, e) => s + e.amount, 0),
+  const custData = custNames.map((name, i) => ({
+    label: name,
+    value: filtered.filter(e => (e.customer || "Unassigned") === name).reduce((s, e) => s + e.amount, 0),
     color: chartColors[i % chartColors.length]
   }));
 
-  const catExps = selLoc === "all" ? expsWithLoc : expsWithLoc.filter(e => e.location === selLoc);
+  const catExps = selCust === "all" ? filtered : filtered.filter(e => (e.customer || "Unassigned") === selCust);
   const catData = CATEGORIES.map(c => ({
     label: c.label,
     value: catExps.filter(e => e.category === c.id).reduce((s, e) => s + e.amount, 0),
@@ -646,18 +640,18 @@ function LocationExpenseSummary({ expenses, customers, allMonths, isAdmin, engin
         </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 24 }}>
         <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)", marginBottom: 16, textAlign: "center" }}>Expense Share by Location</div>
-          <SimplePieChart data={locData} />
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)", marginBottom: 16, textAlign: "center" }}>Expense Share by Customer</div>
+          <SimplePieChart data={custData} />
         </div>
 
         <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20 }}>
            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)", marginBottom: 16 }}>Category Breakdown</div>
           <SimpleColumnChart data={catData} />
-          <select value={selLoc} onChange={e => setSelLoc(e.target.value)} style={{ marginTop: 14, width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--input-bg)", color: "var(--text-main)", fontSize: 13 }}>
-            <option value="all">All Locations</option>
-            {locations.map(l => <option key={l} value={l}>{l}</option>)}
+          <select value={selCust} onChange={e => setSelCust(e.target.value)} style={{ marginTop: 14, width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--input-bg)", color: "var(--text-main)", fontSize: 13 }}>
+            <option value="all">All Customers</option>
+            {custNames.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
         </div>
       </div>
@@ -828,7 +822,7 @@ function CustomerDropdown({ value, onChange, customers }) {
   const filtered = customers.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     (c.code && c.code.toLowerCase().includes(search.toLowerCase()))
-  );
+  ).sort((a, b) => a.name.localeCompare(b.name));
 
   const select = (c) => { onChange(c.name); setSearch(c.name); setOpen(false); };
   const clear = () => { onChange(""); setSearch(""); };
@@ -966,7 +960,7 @@ function AdminDatabase({ users, customers, onSaveUser, onDeleteUser, onSaveCusto
   const filteredCustomers = customers.filter(c =>
     c.name.toLowerCase().includes(custSearch.toLowerCase()) ||
     (c.code && c.code.toLowerCase().includes(custSearch.toLowerCase()))
-  );
+  ).sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <div>
@@ -1589,8 +1583,8 @@ function ReceivedFundList({ funds, onEdit, onDelete, filter, isReadOnly }) {
   const filtered = funds
     .filter(f => inRange(f.date, filter.dateRange || { mode: "all" }))
     .sort((a, b) => {
-      const dateDiff = new Date(b.date || 0) - new Date(a.date || 0);
-      return dateDiff !== 0 ? dateDiff : (b.createdAt || 0) - (a.createdAt || 0);
+      const dateDiff = new Date(a.date || 0) - new Date(b.date || 0);
+      return dateDiff !== 0 ? dateDiff : (a.createdAt || 0) - (b.createdAt || 0);
     });
 
   if (!filtered.length) return <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-light)", fontSize: 14 }}>No received funds found.</div>;
@@ -1894,7 +1888,7 @@ export default function App() {
       {showCustomerFilter && isAdmin && (
         <select value={filterCustomer} onChange={e => setFilterCustomer(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}>
           <option value="">All Customers</option>
-          {customers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+          {[...customers].sort((a, b) => a.name.localeCompare(b.name)).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
         </select>
       )}
       <DateRangeFilter filter={tabDateFilter} onChange={setTabDateFilter} allMonths={allMonths} />
@@ -2067,7 +2061,7 @@ export default function App() {
                 })()}
 
                 <FundSummaryCard expenses={expenses} requests={requests} receivedFunds={receivedFunds} dashFilter={dashFilter} />
-                <LocationExpenseSummary expenses={expenses} customers={customers} allMonths={allMonths} isAdmin={isAdmin} engineers={engineers} />
+                <CustomerExpenseSummary expenses={expenses} customers={customers} allMonths={allMonths} isAdmin={isAdmin} engineers={engineers} />
                 <EngineerGrid expenses={expenses} requests={requests} dashFilter={dashFilter} engineers={engineers} onViewEngineer={setViewingAsEngineer} />
               </>
             ) : (
@@ -2102,7 +2096,7 @@ export default function App() {
                   </div>
                 </Card>
                 
-                <LocationExpenseSummary expenses={myExpenses} customers={customers} allMonths={allMonths} isAdmin={false} />
+                <CustomerExpenseSummary expenses={myExpenses} customers={customers} allMonths={allMonths} isAdmin={false} />
 
                 <Card>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}><h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Recent Expenses</h3><Button small variant="ghost" onClick={() => setTab("expenses")}>View all →</Button></div>
