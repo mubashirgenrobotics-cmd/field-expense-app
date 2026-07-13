@@ -1851,10 +1851,22 @@ export default function App() {
     if (customerChanged) updates.customer = finalCustomer;
     if (finalAmount !== originalAmount || customerChanged || comment) {
       const log = [...(existing?.editLog || [])];
-      log.push({ date: today(), before: originalAmount, after: finalAmount, comment: comment || "", customerBefore: customerChanged ? (originalCustomer || "") : undefined, customerAfter: customerChanged ? finalCustomer : undefined });
+      const logEntry = { date: today(), before: originalAmount, after: finalAmount, comment: comment || "" };
+      // Only include customer fields when they actually changed — Firestore
+      // rejects the whole write if any field is explicitly `undefined`.
+      if (customerChanged) {
+        logEntry.customerBefore = originalCustomer || "";
+        logEntry.customerAfter = finalCustomer;
+      }
+      log.push(logEntry);
       updates.editLog = log;
     }
-    await updateDoc(doc(db, col, id), updates);
+    try {
+      await updateDoc(doc(db, col, id), updates);
+    } catch (err) {
+      console.error("Approve failed:", err);
+      alert(`Could not approve this item: ${err.message || err}`);
+    }
   };
 
   const rejectItem = async (col, id, comment) => {
@@ -1865,7 +1877,12 @@ export default function App() {
       log.push({ date: today(), before: existing?.amount, after: existing?.amount, comment: `REJECTED: ${comment}` });
       updates.editLog = log;
     }
-    await updateDoc(doc(db, col, id), updates);
+    try {
+      await updateDoc(doc(db, col, id), updates);
+    } catch (err) {
+      console.error("Reject failed:", err);
+      alert(`Could not reject this item: ${err.message || err}`);
+    }
   };
 
   const deleteExpense = async (id) => await deleteDoc(doc(db, "expenses", id));
