@@ -755,6 +755,8 @@ function CustomerDropdown({ value, onChange, customers }) {
   const [search, setSearch] = useState(value || "");
   const [open, setOpen] = useState(false);
   const ref = useRef();
+  const valueRef = useRef(value);
+  useEffect(() => { valueRef.current = value; }, [value]);
 
   useEffect(() => {
     const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -770,18 +772,19 @@ function CustomerDropdown({ value, onChange, customers }) {
   const select = (c) => { onChange(c.name); setSearch(c.name); setOpen(false); };
   const clear = () => { onChange(""); setSearch(""); };
 
-  // Typing only filters the list; the actual selected value is cleared until
-  // the person picks a real customer, so a typed name can never be saved as-is.
+  // Typing only filters the list — it never touches the actual selected value.
+  // The real value only ever changes when a real customer is clicked (select()),
+  // so a typed name can never be submitted as-is.
   const handleTyping = (e) => {
-    const v = e.target.value;
-    setSearch(v);
-    if (value) onChange("");
+    setSearch(e.target.value);
     setOpen(true);
   };
 
   const handleBlur = () => {
-    // If what's left in the box doesn't match the confirmed selection, reset the text.
-    setTimeout(() => { if (search !== (value || "")) setSearch(value || ""); }, 150);
+    // If the box still shows leftover search text (no selection was made),
+    // snap the display back to whatever is actually selected. Reads from a
+    // ref (not the closured value) so this can't act on stale data.
+    setTimeout(() => setSearch(valueRef.current || ""), 150);
   };
 
   return (
@@ -800,7 +803,7 @@ function CustomerDropdown({ value, onChange, customers }) {
       {open && filtered.length > 0 && (
         <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "var(--bg-card)", border: "1.5px solid var(--border)", borderRadius: 10, zIndex: 500, maxHeight: 200, overflowY: "auto", boxShadow: "0 4px 16px rgba(0,0,0,0.12)", marginTop: 4 }}>
           {filtered.map(c => (
-            <div key={c.id} onClick={() => select(c)} style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid var(--hover-bg)", display: "flex", justifyContent: "space-between", color: "var(--text-main)" }}
+            <div key={c.id} onMouseDown={e => e.preventDefault()} onClick={() => select(c)} style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid var(--hover-bg)", display: "flex", justifyContent: "space-between", color: "var(--text-main)" }}
               onMouseEnter={e => e.currentTarget.style.background = "var(--hover-bg)"}
               onMouseLeave={e => e.currentTarget.style.background = ""}
             >
