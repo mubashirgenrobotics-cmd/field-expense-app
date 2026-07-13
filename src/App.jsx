@@ -1246,9 +1246,17 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject, customers 
   const [amount, setAmount] = useState(item.amount);
   const [customer, setCustomer] = useState(item.customer || "");
   const [comment, setComment] = useState("");
+  const [showCommentError, setShowCommentError] = useState(false);
   const amountChanged = parseFloat(amount) !== item.amount;
   const customerChanged = item.customer !== undefined && customer !== (item.customer || "");
   const changed = amountChanged || customerChanged;
+
+  const handleApprove = () => {
+    if (changed && !comment.trim()) { setShowCommentError(true); return; }
+    onApprove(item.id, parseFloat(amount), comment, item.amount, customer, item.customer);
+    onClose();
+  };
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
       <Card style={{ width: "100%", maxWidth: 420 }}>
@@ -1276,12 +1284,19 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject, customers 
           </div>
         )}
         <Field label={`Admin Comment ${changed ? "(required)" : "(optional)"}`}>
-          <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder="Add a note or reason..." rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+          <textarea
+            value={comment}
+            onChange={e => { setComment(e.target.value); if (showCommentError) setShowCommentError(false); }}
+            placeholder="Add a note or reason..."
+            rows={3}
+            style={{ ...inputStyle, resize: "vertical", ...(showCommentError ? { border: "1.5px solid #EF4444" } : {}) }}
+          />
+          {showCommentError && <div style={{ color: "#EF4444", fontSize: 12, marginTop: 4 }}>⚠️ Please add a comment explaining the change before approving.</div>}
         </Field>
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
           <Button onClick={() => { onReject(item.id, comment); onClose(); }} variant="danger" style={{ flex: 1 }}>Reject</Button>
-          <Button onClick={() => { onApprove(item.id, parseFloat(amount), comment, item.amount, customer, item.customer); onClose(); }} variant="success" disabled={changed && !comment.trim()} style={{ flex: 1 }}>Approve</Button>
+          <Button onClick={handleApprove} variant="success" style={{ flex: 1 }}>Approve</Button>
         </div>
       </Card>
     </div>
