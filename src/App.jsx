@@ -81,6 +81,13 @@ function inRange(date, f) {
   return true;
 }
 
+function submittedDateStr(createdAt) {
+  if (!createdAt) return "";
+  const d = typeof createdAt === "number" ? new Date(createdAt) : new Date(createdAt);
+  if (isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
+}
+
 function fileToBase64(file) {
   return new Promise((res, rej) => {
     const r = new FileReader();
@@ -1468,6 +1475,7 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
       if (filter.status !== "all" && e.status !== filter.status) return false;
       if (isAdmin && filter.engineer && e.engineerId !== filter.engineer) return false;
       if (filter.customer && e.customer !== filter.customer) return false;
+      if (filter.submittedRange && filter.submittedRange.mode !== "all" && !inRange(submittedDateStr(e.createdAt), filter.submittedRange)) return false;
       return true;
     })
     .sort((a, b) => {
@@ -1738,6 +1746,7 @@ export default function App() {
   const [filterEngineer, setFilterEngineer] = useState("");
   const [filterCustomer, setFilterCustomer] = useState("");
   const [tabDateFilter, setTabDateFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
+  const [filterSubmitted, setFilterSubmitted] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
   const [rfDateFilter, setRfDateFilter] = useState({ mode: "all", month: monthOf(today()), from: today(), to: today() });
 
   // ── NOTIFICATIONS ──
@@ -1905,7 +1914,7 @@ export default function App() {
   ];
   const tabs = (user.role === "admin" && !viewingAsEngineer) ? adminTabs : engTabs;
 
-  const renderTabFilterUI = (showCustomerFilter) => (
+  const renderTabFilterUI = (showExpenseExtras) => (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
       {isAdmin && <select value={filterEngineer} onChange={e => setFilterEngineer(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}>
         <option value="">All Engineers</option>
@@ -1917,13 +1926,22 @@ export default function App() {
         <option value="approved">Approved</option>
         <option value="rejected">Rejected</option>
       </select>
-      {showCustomerFilter && isAdmin && (
+      {showExpenseExtras && isAdmin && (
         <select value={filterCustomer} onChange={e => setFilterCustomer(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 12px" }}>
           <option value="">All Customers</option>
           {[...customers].sort((a, b) => a.name.localeCompare(b.name)).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
         </select>
       )}
-      <DateRangeFilter filter={tabDateFilter} onChange={setTabDateFilter} allMonths={allMonths} />
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {showExpenseExtras && <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 600 }}>Expense Date:</span>}
+        <DateRangeFilter filter={tabDateFilter} onChange={setTabDateFilter} allMonths={allMonths} />
+      </div>
+      {showExpenseExtras && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 600 }}>Submitted Date:</span>
+          <DateRangeFilter filter={filterSubmitted} onChange={setFilterSubmitted} allMonths={allMonths} />
+        </div>
+      )}
     </div>
   );
 
@@ -2223,7 +2241,7 @@ export default function App() {
                 onDelete={exp => { setDeleteItem(exp); setDeleteItemType("expense"); }}
                 isAdmin={isAdmin}
                 isReadOnly={isReadOnly}
-                filter={{ dateRange: tabDateFilter, status: filterStatus, engineer: filterEngineer, customer: filterCustomer }} />
+                filter={{ dateRange: tabDateFilter, status: filterStatus, engineer: filterEngineer, customer: filterCustomer, submittedRange: filterSubmitted }} />
             </Card>
           </>
         )}
