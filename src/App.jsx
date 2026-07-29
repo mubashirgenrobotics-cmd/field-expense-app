@@ -2176,7 +2176,7 @@ export default function App() {
 
       {/* TOP NAV BAR — Layer 1: App Identity Only */}
       <div style={{ background: "#0A0A0A", padding: "0 20px", position: "sticky", top: 0, zIndex: 100, borderBottom: "1px solid #2A2416", boxShadow: "0 2px 20px rgba(0,0,0,0.6)" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", gap: 14, height: 56 }}>
+        <div style={{ width: "100%", margin: 0, display: "flex", alignItems: "center", gap: 14, height: 56 }}>
 
           {/* Hamburger Button */}
           <button
@@ -2207,7 +2207,7 @@ export default function App() {
 
       {/* PAGE TITLE BAR — Layer 2: Current Window Name */}
       <div style={{ background: "#111008", borderBottom: "1px solid #2A2416", padding: "0 20px" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto", height: 36, display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ width: "100%", margin: 0, height: 36, display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 15 }}>{tabs.find(t => t.id === tab)?.icon}</span>
           <span style={{ color: "#A89060", fontWeight: 700, fontSize: 13, letterSpacing: "0.01em" }}>
             {tabs.find(t => t.id === tab)?.label}
@@ -2221,7 +2221,7 @@ export default function App() {
       </div>
 
       {/* CONTENT */}
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 24px" }}>
+      <div style={{ width: "100%", margin: 0, padding: "28px 24px", boxSizing: "border-box" }}>
 
         {isReadOnly && (
           <div style={{ background: "#FEF2F2", border: "1px solid #F87171", color: "#991B1B", padding: "12px 20px", borderRadius: 12, marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
