@@ -500,7 +500,9 @@ function NotifPanel({ notifs, onClear, onClose }) {
 }
 
 // ─── CHARTS & DASHBOARD EXTENSIONS ────────────────────────────────────────────
-function SimplePieChart({ data, size = 190 }) {
+function SimplePieChart({ data, size = 260 }) {
+  const [sel, setSel] = useState(null);
+
   if (!data || data.length === 0 || data.every(d => d.value === 0)) {
     return <div style={{ width: size, height: size, borderRadius: "50%", background: "var(--hover-bg)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-light)", fontSize: 12, margin: "0 auto" }}>No Data</div>;
   }
@@ -508,53 +510,159 @@ function SimplePieChart({ data, size = 190 }) {
   const shown = data.filter(d => d.value > 0).sort((a, b) => b.value - a.value);
   const total = shown.reduce((s, d) => s + d.value, 0);
 
-  let angle = 0;
-  const gradient = shown.map(d => {
-    const start = angle;
-    angle += (d.value / total) * 360;
-    return `${d.color} ${start}deg ${angle}deg`;
-  }).join(", ");
+  // Angular range of every slice, in the same order the conic-gradient paints
+  // them — this is what makes the donut clickable.
+  let acc = 0;
+  const slices = shown.map((d, i) => {
+    const start = acc;
+    acc += (d.value / total) * 360;
+    return { ...d, i, start, end: acc, pct: (d.value / total) * 100 };
+  });
+  const gradient = slices.map(s => `${s.color} ${s.start}deg ${s.end}deg`).join(", ");
 
-  // Legend scrolls instead of stretching the card — the donut keeps its size
-  // no matter how many customers there are.
+  const cx = size / 2, cy = size / 2;
+  const outerR = size / 2;
+  const ringW = size * 0.19;            // thickness of the coloured ring
+  const innerR = outerR - ringW;        // hole radius — wide enough for the total
   const listH = size + 26;
+
+  const pt = (r, deg) => {
+    const a = ((deg - 90) * Math.PI) / 180;
+    return `${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`;
+  };
+
+  // Outline drawn over the selected wedge so it reads as "popped out"
+  const wedgePath = (s) => {
+    const large = s.end - s.start > 180 ? 1 : 0;
+    const end = Math.min(s.end, s.start + 359.99);
+    return `M ${pt(innerR, s.start)} L ${pt(outerR, s.start)} A ${outerR} ${outerR} 0 ${large} 1 ${pt(outerR, end)} L ${pt(innerR, end)} A ${innerR} ${innerR} 0 ${large} 0 ${pt(innerR, s.start)} Z`;
+  };
+
+  // The pop-up hangs outside the ring on the side its slice sits on, so it
+  // never lands on the total. Left-hand slices flip to top/bottom — a card to
+  // the left of the donut would hang off the edge of the panel.
+  const POP_W = 178;
+  const anchorFor = (deg) => {
+    const a = ((deg - 90) * Math.PI) / 180;
+    const r = outerR + 8;
+    let x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
+    let sd = deg >= 45 && deg < 135 ? "right" : deg >= 135 && deg < 255 ? "bottom" : "top";
+    if (sd === "right") return { x: size + 8, y, side: sd };
+    // top/bottom clear the hole vertically, and stay inside the donut's width
+    y = sd === "top" ? size * 0.04 : size * 0.96;
+    x = Math.min(Math.max(x, POP_W / 2), size - POP_W / 2);
+    return { x, y, side: sd };
+  };
+
+  const pick = (s, deg) => setSel(prev => (prev && prev.i === s.i ? null : { ...s, ...anchorFor(deg ?? (s.start + s.end) / 2) }));
+
+  // Map a click inside the ring back to the slice underneath it
+  const handleDonutClick = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const dist = Math.hypot(x - cx, y - cy);
+    if (dist > outerR || dist < innerR) { setSel(null); return; }   // hole or outside
+    let deg = (Math.atan2(x - cx, -(y - cy)) * 180) / Math.PI;
+    if (deg < 0) deg += 360;
+    const hit = slices.find(s => deg >= s.start && deg < s.end) || slices[slices.length - 1];
+    pick(hit, deg);
+  };
+
+  const POP = {
+    top: { transform: "translate(-50%, -100%)", arrow: { bottom: -6, left: "50%", transform: "translateX(-50%) rotate(45deg)", borderRight: 1, borderBottom: 1 } },
+    bottom: { transform: "translate(-50%, 0)", arrow: { top: -6, left: "50%", transform: "translateX(-50%) rotate(45deg)", borderLeft: 1, borderTop: 1 } },
+    right: { transform: "translate(0, -50%)", arrow: { left: -6, top: "50%", transform: "translateY(-50%) rotate(45deg)", borderLeft: 1, borderBottom: 1 } },
+  };
+
+  const totalStr = fmt(total);
+  const totalFont = totalStr.length > 14 ? 15 : totalStr.length > 11 ? 17 : 19;
 
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 20, flexWrap: "wrap" }}>
 
-      {/* Donut with the total in the hole */}
+      {/* Donut — click any slice for its details */}
       <div style={{ position: "relative", width: size, height: size, flexShrink: 0, margin: "0 auto" }}>
-        <div style={{ width: "100%", height: "100%", borderRadius: "50%", background: `conic-gradient(${gradient})` }} />
+        <div
+          onClick={handleDonutClick}
+          title="Click a slice for details"
+          style={{ width: "100%", height: "100%", borderRadius: "50%", background: `conic-gradient(${gradient})`, cursor: "pointer" }}
+        />
+
+        {sel && (
+          <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+            {slices.length === 1
+              ? <><circle cx={cx} cy={cy} r={outerR - 1.25} fill="none" stroke="#F5F0E8" strokeWidth="2.5" /><circle cx={cx} cy={cy} r={innerR + 1.25} fill="none" stroke="#F5F0E8" strokeWidth="2.5" /></>
+              : <path d={wedgePath(sel)} fill="none" stroke="#F5F0E8" strokeWidth="2.5" strokeLinejoin="round" />}
+          </svg>
+        )}
+
+        {/* Hole — total, on one line */}
         <div style={{
-          position: "absolute", inset: size * 0.23, borderRadius: "50%", background: "var(--bg-card)",
-          border: "1px solid var(--border)", display: "flex", flexDirection: "column",
-          alignItems: "center", justifyContent: "center", gap: 2, padding: 6, boxSizing: "border-box",
+          position: "absolute", left: cx - innerR, top: cy - innerR, width: innerR * 2, height: innerR * 2,
+          borderRadius: "50%", background: "var(--bg-card)", border: "1px solid var(--border)",
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          gap: 3, padding: 8, boxSizing: "border-box", pointerEvents: "none",
         }}>
           <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Total</span>
-          <strong style={{ fontSize: 15, fontWeight: 800, color: "#D4A017", lineHeight: 1.1, textAlign: "center", wordBreak: "break-all" }}>{fmt(total)}</strong>
+          <strong style={{ fontSize: totalFont, fontWeight: 800, color: "#D4A017", lineHeight: 1.1, whiteSpace: "nowrap" }}>{totalStr}</strong>
+          <span style={{ fontSize: 10, color: "var(--text-light)", fontWeight: 600 }}>{shown.length} customers</span>
         </div>
+
+        {/* Pop-up for the selected slice */}
+        {sel && (() => {
+          const p = POP[sel.side];
+          const a = p.arrow;
+          return (
+            <div style={{
+              position: "absolute", left: sel.x, top: sel.y, transform: p.transform,
+              zIndex: 20, minWidth: 154, maxWidth: 220,
+              background: "#1A1608", border: `1.5px solid ${sel.color}`, borderRadius: 12,
+              padding: "10px 12px", boxShadow: "0 10px 30px rgba(0,0,0,0.6)",
+              animation: "popFade 0.15s ease-out",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: sel.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-main)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel.label}</span>
+                <button onClick={() => setSel(null)} style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-light)", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
+              </div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "#D4A017", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmt(sel.value)}</div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{sel.pct.toFixed(1)}% of total</div>
+              <div style={{
+                position: "absolute", width: 10, height: 10, background: "#1A1608",
+                top: a.top, bottom: a.bottom, left: a.left, right: a.right, transform: a.transform,
+                borderLeft: a.borderLeft ? `1.5px solid ${sel.color}` : undefined,
+                borderTop: a.borderTop ? `1.5px solid ${sel.color}` : undefined,
+                borderRight: a.borderRight ? `1.5px solid ${sel.color}` : undefined,
+                borderBottom: a.borderBottom ? `1.5px solid ${sel.color}` : undefined,
+              }} />
+            </div>
+          );
+        })()}
+
+        <style>{`@keyframes popFade { from { opacity: 0 } to { opacity: 1 } }`}</style>
       </div>
 
       {/* Legend — fixed columns so names and amounts line up */}
-      <div style={{ flex: "1 1 260px", minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ flex: "1 1 280px", minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 11, color: "var(--text-light)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", padding: "0 2px" }}>
           <span>{shown.length} customer{shown.length === 1 ? "" : "s"}</span>
           <span>Amount</span>
         </div>
 
-        <div style={{ maxHeight: listH, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4, paddingRight: 4 }}>
-          {shown.map((d, i) => {
-            const pct = (d.value / total) * 100;
+        <div style={{ maxHeight: listH, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5, paddingRight: 4 }}>
+          {slices.map(s => {
+            const on = sel && sel.i === s.i;
             return (
-              <div key={i} title={`${d.label} · ${fmt(d.value)} · ${pct.toFixed(1)}%`} style={{
-                display: "grid", gridTemplateColumns: "10px minmax(0,1fr) 46px auto", alignItems: "center",
-                gap: 10, fontSize: 13, background: "var(--input-bg)", padding: "7px 10px", borderRadius: 8,
-                border: "1px solid var(--border)",
+              <div key={s.i} onClick={() => pick(s)} title={`${s.label} · ${fmt(s.value)} · ${s.pct.toFixed(1)}%`} style={{
+                display: "grid", gridTemplateColumns: "11px minmax(0,1fr) 50px auto", alignItems: "center",
+                gap: 10, fontSize: 13.5, background: on ? "rgba(212,160,23,0.12)" : "var(--input-bg)",
+                padding: "9px 12px", borderRadius: 9, cursor: "pointer",
+                border: `1px solid ${on ? "#D4A017" : "var(--border)"}`, transition: "background 0.12s, border-color 0.12s",
               }}>
-                <span style={{ width: 10, height: 10, borderRadius: 3, background: d.color }} />
-                <span style={{ color: "var(--text-muted)", fontWeight: 600, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.label}</span>
-                <span style={{ color: "var(--text-light)", fontSize: 11, fontWeight: 700, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{pct.toFixed(1)}%</span>
-                <strong style={{ color: "var(--text-main)", textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{fmt(d.value)}</strong>
+                <span style={{ width: 11, height: 11, borderRadius: 3, background: s.color }} />
+                <span style={{ color: on ? "var(--text-main)" : "var(--text-muted)", fontWeight: 600, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}</span>
+                <span style={{ color: "var(--text-light)", fontSize: 11, fontWeight: 700, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{s.pct.toFixed(1)}%</span>
+                <strong style={{ color: "var(--text-main)", textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{fmt(s.value)}</strong>
               </div>
             );
           })}
@@ -672,7 +780,7 @@ function CustomerExpenseSummary({ expenses, customers, allMonths, isAdmin, engin
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))", gap: 24, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(440px, 1fr))", gap: 24, alignItems: "start" }}>
         <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)", marginBottom: 16, textAlign: "left" }}>Expense Share by Customer</div>
           <SimplePieChart data={custData} />
