@@ -500,35 +500,64 @@ function NotifPanel({ notifs, onClear, onClose }) {
 }
 
 // ─── CHARTS & DASHBOARD EXTENSIONS ────────────────────────────────────────────
-function SimplePieChart({ data, size = 160 }) {
+function SimplePieChart({ data, size = 190 }) {
   if (!data || data.length === 0 || data.every(d => d.value === 0)) {
-    return <div style={{ width: size, height: size, borderRadius: "50%", background: "var(--hover-bg)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-light)", fontSize: 12 }}>No Data</div>;
+    return <div style={{ width: size, height: size, borderRadius: "50%", background: "var(--hover-bg)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-light)", fontSize: 12, margin: "0 auto" }}>No Data</div>;
   }
-  
-  const total = data.reduce((s, d) => s + d.value, 0);
+
+  const shown = data.filter(d => d.value > 0).sort((a, b) => b.value - a.value);
+  const total = shown.reduce((s, d) => s + d.value, 0);
+
   let angle = 0;
-  const gradient = data.map(d => {
+  const gradient = shown.map(d => {
     const start = angle;
     angle += (d.value / total) * 360;
     return `${d.color} ${start}deg ${angle}deg`;
   }).join(", ");
 
+  // Legend scrolls instead of stretching the card — the donut keeps its size
+  // no matter how many customers there are.
+  const listH = size + 26;
+
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap", justifyContent: "center" }}>
-      <div style={{ width: size, height: size, borderRadius: "50%", background: `conic-gradient(${gradient})`, boxShadow: "0 4px 10px rgba(0, 0, 0, 0.08)" }} />
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 160 }}>
-        {data.filter(d => d.value > 0).sort((a,b) => b.value - a.value).map((d, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13, background: "var(--input-bg)", padding: "6px 10px", borderRadius: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ width: 12, height: 12, borderRadius: 3, background: d.color }} />
-              <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>{d.label}</span>
-            </div>
-            <strong style={{ color: "var(--text-main)" }}>{fmt(d.value)}</strong>
-          </div>
-        ))}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, background: "rgba(212,160,23,0.1)", padding: "8px 10px", borderRadius: 8, marginTop: 4, border: "1px solid rgba(212,160,23,0.25)" }}>
-          <span style={{ color: "#D4A017", fontWeight: 800 }}>Total</span>
-          <strong style={{ color: "#D4A017", fontWeight: 800 }}>{fmt(total)}</strong>
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 20, flexWrap: "wrap" }}>
+
+      {/* Donut with the total in the hole */}
+      <div style={{ position: "relative", width: size, height: size, flexShrink: 0, margin: "0 auto" }}>
+        <div style={{ width: "100%", height: "100%", borderRadius: "50%", background: `conic-gradient(${gradient})` }} />
+        <div style={{
+          position: "absolute", inset: size * 0.23, borderRadius: "50%", background: "var(--bg-card)",
+          border: "1px solid var(--border)", display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center", gap: 2, padding: 6, boxSizing: "border-box",
+        }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Total</span>
+          <strong style={{ fontSize: 15, fontWeight: 800, color: "#D4A017", lineHeight: 1.1, textAlign: "center", wordBreak: "break-all" }}>{fmt(total)}</strong>
+        </div>
+      </div>
+
+      {/* Legend — fixed columns so names and amounts line up */}
+      <div style={{ flex: "1 1 260px", minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 11, color: "var(--text-light)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", padding: "0 2px" }}>
+          <span>{shown.length} customer{shown.length === 1 ? "" : "s"}</span>
+          <span>Amount</span>
+        </div>
+
+        <div style={{ maxHeight: listH, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4, paddingRight: 4 }}>
+          {shown.map((d, i) => {
+            const pct = (d.value / total) * 100;
+            return (
+              <div key={i} title={`${d.label} · ${fmt(d.value)} · ${pct.toFixed(1)}%`} style={{
+                display: "grid", gridTemplateColumns: "10px minmax(0,1fr) 46px auto", alignItems: "center",
+                gap: 10, fontSize: 13, background: "var(--input-bg)", padding: "7px 10px", borderRadius: 8,
+                border: "1px solid var(--border)",
+              }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: d.color }} />
+                <span style={{ color: "var(--text-muted)", fontWeight: 600, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.label}</span>
+                <span style={{ color: "var(--text-light)", fontSize: 11, fontWeight: 700, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{pct.toFixed(1)}%</span>
+                <strong style={{ color: "var(--text-main)", textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{fmt(d.value)}</strong>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -643,9 +672,9 @@ function CustomerExpenseSummary({ expenses, customers, allMonths, isAdmin, engin
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 24 }}>
-        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)", marginBottom: 16, textAlign: "center" }}>Expense Share by Customer</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))", gap: 24, alignItems: "start" }}>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)", marginBottom: 16, textAlign: "left" }}>Expense Share by Customer</div>
           <SimplePieChart data={custData} />
         </div>
 
