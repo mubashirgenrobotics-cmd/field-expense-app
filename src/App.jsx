@@ -112,12 +112,15 @@ const compressImage = (file) => {
   });
 };
 
-function downloadAttachment(exp) {
-  if (!exp.attachment) return;
+function downloadAttachment(exp, idx = 0) {
+  // Support both legacy single attachment and new multi-attachment array
+  const attachList = exp.attachments || (exp.attachment ? [{ data: exp.attachment, name: exp.attachName }] : []);
+  const item = attachList[idx];
+  if (!item) return;
   const a = document.createElement("a");
-  a.href = exp.attachment;
-  const ext = exp.attachName ? exp.attachName.split(".").pop() : (exp.attachment.startsWith("data:image/png") ? "png" : exp.attachment.startsWith("data:application/pdf") ? "pdf" : "jpg");
-  a.download = `bill-${exp.engineerName.replace(/\s+/g, "_")}-${exp.date}-${exp.id}.${ext}`;
+  a.href = item.data;
+  const ext = item.name ? item.name.split(".").pop() : (item.data.startsWith("data:image/png") ? "png" : item.data.startsWith("data:application/pdf") ? "pdf" : "jpg");
+  a.download = `bill${attachList.length > 1 ? `-${idx + 1}` : ""}-${exp.engineerName.replace(/\s+/g, "_")}-${exp.date}-${exp.id}.${ext}`;
   a.click();
 }
 
@@ -902,6 +905,78 @@ function DateRangeFilter({ filter, onChange, allMonths }) {
   );
 }
 
+// ─── MULTI-BILL VIEWER ───────────────────────────────────────────────────────
+function MultiBillViewer({ bills, exp, onClose, onDownload }) {
+  const [activeIdx, setActiveIdx] = useState(0);
+  const bill = bills[activeIdx] || {};
+  const isImg = bill.data?.startsWith("data:image");
+  const isPdf = bill.data?.startsWith("data:application/pdf");
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: 20 }}>
+      <div style={{ background: "var(--bg-card)", borderRadius: 16, maxWidth: 720, width: "100%", maxHeight: "92vh", display: "flex", flexDirection: "column", color: "var(--text-main)" }}>
+
+        {/* Header */}
+        <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexShrink: 0 }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>{exp.description}</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+              {exp.date} · {fmt(exp.amount)}
+              {bills.length > 1 && <span style={{ marginLeft: 8, background: "rgba(212,160,23,0.15)", color: "#D4A017", padding: "1px 8px", borderRadius: 10, fontWeight: 700, fontSize: 11 }}>{bills.length} Bills</span>}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Button small variant="outline" onClick={() => onDownload(activeIdx)}>⬇️ Download</Button>
+            <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "var(--text-light)", lineHeight: 1 }}>✕</button>
+          </div>
+        </div>
+
+        {/* Bill tabs — only when multiple */}
+        {bills.length > 1 && (
+          <div style={{ display: "flex", gap: 6, padding: "10px 18px", borderBottom: "1px solid var(--border)", flexWrap: "wrap", flexShrink: 0 }}>
+            {bills.map((b, i) => (
+              <button
+                key={i}
+                onClick={() => setActiveIdx(i)}
+                style={{
+                  padding: "5px 14px", borderRadius: 20, border: "none", cursor: "pointer",
+                  fontWeight: 600, fontSize: 12,
+                  background: activeIdx === i ? "linear-gradient(135deg,#8A6800,#D4A017)" : "var(--hover-bg)",
+                  color: activeIdx === i ? "#0A0A0A" : "var(--text-muted)",
+                  transition: "all 0.15s",
+                }}
+              >
+                {b.data?.startsWith("data:image") ? "🖼️" : "📄"} Bill {i + 1}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Viewer */}
+        <div style={{ flex: 1, overflow: "auto", padding: 20, textAlign: "center" }}>
+          <div style={{ fontSize: 12, color: "var(--text-light)", marginBottom: 10 }}>{bill.name}</div>
+          {isImg && <img src={bill.data} alt={`bill ${activeIdx + 1}`} style={{ maxWidth: "100%", borderRadius: 8 }} />}
+          {isPdf && <iframe src={bill.data} style={{ width: "100%", height: 500, border: "none", borderRadius: 8 }} title={`bill-${activeIdx + 1}`} />}
+          {!isImg && !isPdf && <p style={{ color: "var(--text-muted)" }}>Preview not available for this file type.</p>}
+        </div>
+
+        {/* Navigation arrows for multiple bills */}
+        {bills.length > 1 && (
+          <div style={{ padding: "12px 18px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+            <Button small variant="ghost" onClick={() => setActiveIdx(i => Math.max(0, i - 1))} disabled={activeIdx === 0} style={{ border: "1px solid var(--border)" }}>
+              ← Previous
+            </Button>
+            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{activeIdx + 1} of {bills.length}</span>
+            <Button small variant="ghost" onClick={() => setActiveIdx(i => Math.min(bills.length - 1, i + 1))} disabled={activeIdx === bills.length - 1} style={{ border: "1px solid var(--border)" }}>
+              Next →
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
 function Login({ onLogin, users }) {
   const [id, setId] = useState("");
@@ -1368,39 +1443,65 @@ function FundRequestForm({ user, onSubmit, onClose, customers }) {
   );
 }
 
+const MAX_BILLS = 5;
+
 function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, customers }) {
   const [amount, setAmount] = useState(editItem?.amount || "");
   const [category, setCategory] = useState(editItem?.category || "travel");
   const [description, setDescription] = useState(editItem?.description || "");
   const [date, setDate] = useState(editItem?.date || today());
-  const [attachment, setAttachment] = useState(editItem?.attachment || null);
-  const [attachName, setAttachName] = useState(editItem?.attachName || "");
   const [customer, setCustomer] = useState(editItem?.customer || "");
   const fileRef = useRef();
 
-  const handleFile = async (file) => {
-    if (!file) return;
-    setAttachName(file.name);
+  // Normalise legacy single-attachment into the new multi-attachment array
+  const initAttachments = () => {
+    if (editItem?.attachments) return editItem.attachments;
+    if (editItem?.attachment) return [{ data: editItem.attachment, name: editItem.attachName || "bill" }];
+    return [];
+  };
+  const [attachments, setAttachments] = useState(initAttachments);
+  const [dragOver, setDragOver] = useState(false);
+
+  const processFile = async (file) => {
+    if (!file) return null;
+    let data;
     if (file.type.startsWith("image/")) {
-      const compressed = await compressImage(file);
-      setAttachment(compressed);
+      data = await compressImage(file);
     } else {
-      const b64 = await fileToBase64(file);
-      setAttachment(b64);
+      data = await fileToBase64(file);
     }
+    return { data, name: file.name };
+  };
+
+  const addFiles = async (files) => {
+    const remaining = MAX_BILLS - attachments.length;
+    if (remaining <= 0) return;
+    const toProcess = Array.from(files).slice(0, remaining);
+    const processed = await Promise.all(toProcess.map(processFile));
+    setAttachments(prev => [...prev, ...processed.filter(Boolean)]);
+  };
+
+  const removeAttachment = (idx) => {
+    setAttachments(prev => prev.filter((_, i) => i !== idx));
   };
 
   const submit = () => {
-    if (!amount || !description || !attachment || !customer) return;
+    if (!amount || !description || attachments.length === 0 || !customer) return;
+    // Keep legacy fields populated with first attachment for backward compat
     onSubmit({
       id: editItem?.id || uid(), engineerId: user.id, engineerName: user.name,
-      amount: parseFloat(amount), category, description, date, attachment, attachName,
-      customer, type: "expense", status: "pending", createdAt: editItem?.createdAt || Date.now(), editLog: editItem?.editLog || [],
+      amount: parseFloat(amount), category, description, date,
+      attachments,                        // new multi-bill array
+      attachment: attachments[0]?.data,   // legacy compat
+      attachName: attachments[0]?.name,   // legacy compat
+      customer, type: "expense", status: "pending",
+      createdAt: editItem?.createdAt || Date.now(), editLog: editItem?.editLog || [],
     });
     onClose();
   };
 
   const over = parseFloat(amount) > availableBalance;
+  const canAddMore = attachments.length < MAX_BILLS;
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16, overflowY: "auto" }}>
@@ -1427,16 +1528,74 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
           <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" style={{ ...inputStyle, borderColor: over ? "#EF4444" : undefined }} />
           {over && <span style={{ color: "#EF4444", fontSize: 12 }}>⚠ Exceeds available balance</span>}
         </Field>
-        <Field label="Description"><input value={description} onChange={e => setDescription(e.target.value)} placeholder="What was this expense for?" style={inputStyle} /></Field>
-        <Field label="Attachment (Camera/Bill)">
-          <div onClick={() => fileRef.current.click()} style={{ border: `2px dashed ${attachment ? "#10B981" : "var(--border)"}`, borderRadius: 10, padding: "16px", textAlign: "center", cursor: "pointer", background: attachment ? "rgba(16, 185, 129, 0.05)" : "var(--input-bg)" }}>
-            {attachment ? <><span style={{ fontSize: 22 }}>✅</span><br /><span style={{ fontSize: 13, color: "#10B981", fontWeight: 600 }}>{attachName}</span></> : <><span style={{ fontSize: 22 }}>📷</span><br /><span style={{ fontSize: 13, color: "var(--text-muted)" }}>Tap to take photo or upload bill</span></>}
-          </div>
-          <input ref={fileRef} type="file" accept="image/*,.pdf" capture="environment" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
+        <Field label="Description">
+          <input value={description} onChange={e => setDescription(e.target.value)} placeholder="What was this expense for?" style={inputStyle} />
         </Field>
+
+        {/* ── MULTI-BILL ATTACHMENT ── */}
+        <Field label={`Bills / Receipts (${attachments.length}/${MAX_BILLS}) — at least 1 required`}>
+          {/* Existing attachments */}
+          {attachments.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+              {attachments.map((att, idx) => (
+                <div key={idx} style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  background: "rgba(16,185,129,0.07)", border: "1px solid rgba(16,185,129,0.25)",
+                  borderRadius: 8, padding: "8px 12px",
+                }}>
+                  <span style={{ fontSize: 16 }}>{att.data?.startsWith("data:image") ? "🖼️" : "📄"}</span>
+                  <span style={{ flex: 1, fontSize: 12, color: "#10B981", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    Bill {idx + 1}: {att.name}
+                  </span>
+                  <button
+                    onClick={() => removeAttachment(idx)}
+                    style={{ background: "rgba(239,68,68,0.12)", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer", color: "#EF4444", fontSize: 13, fontWeight: 700 }}
+                  >✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Drop zone — only shown if under limit */}
+          {canAddMore && (
+            <div
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={async e => { e.preventDefault(); setDragOver(false); await addFiles(e.dataTransfer.files); }}
+              onClick={() => fileRef.current.click()}
+              style={{
+                border: `2px dashed ${dragOver ? "#D4A017" : attachments.length === 0 ? "#EF444488" : "var(--border)"}`,
+                borderRadius: 10, padding: "14px", textAlign: "center",
+                cursor: "pointer", transition: "all 0.2s",
+                background: dragOver ? "rgba(212,160,23,0.06)" : "var(--input-bg)",
+              }}
+            >
+              <span style={{ fontSize: 22 }}>📷</span><br />
+              <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                {attachments.length === 0
+                  ? "Tap or drag to upload first bill"
+                  : `Add another bill (${MAX_BILLS - attachments.length} more allowed)`}
+              </span><br />
+              <span style={{ fontSize: 11, color: "var(--text-light)" }}>JPG, PNG or PDF · max {MAX_BILLS} bills</span>
+            </div>
+          )}
+          {!canAddMore && (
+            <div style={{ fontSize: 12, color: "#D4A017", textAlign: "center", padding: "8px 0" }}>
+              ✅ Maximum {MAX_BILLS} bills attached
+            </div>
+          )}
+          <input ref={fileRef} type="file" accept="image/*,.pdf" capture="environment" multiple style={{ display: "none" }} onChange={e => addFiles(e.target.files)} />
+        </Field>
+
+        {attachments.length === 0 && (
+          <p style={{ color: "#EF4444", fontSize: 12, margin: "-8px 0 8px" }}>⚠ At least one bill/receipt is required</p>
+        )}
+
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
-          <Button onClick={submit} disabled={!amount || !description || !attachment || over || !customer} style={{ flex: 1 }}>{editItem ? "Update Expense" : "Submit Expense"}</Button>
+          <Button onClick={submit} disabled={!amount || !description || attachments.length === 0 || over || !customer} style={{ flex: 1 }}>
+            {editItem ? "Update Expense" : "Submit Expense"}
+          </Button>
         </div>
       </Card>
     </div>
@@ -1503,8 +1662,14 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: "#EF4444" }}>-{fmt(exp.amount)}</div>
                 <div style={{ display: "flex", gap: 4, justifyContent: "flex-end", marginTop: 4, flexWrap: "wrap" }}>
-                  {exp.attachment && <Button small variant="outline" onClick={() => onViewAttachment(exp)}>📎 Bill</Button>}
-                  {isAdmin && exp.attachment && <Button small variant="ghost" onClick={() => downloadAttachment(exp)}>⬇️</Button>}
+                  {(exp.attachments?.length > 0 || exp.attachment) && (
+                    <Button small variant="outline" onClick={() => onViewAttachment(exp)}>
+                      📎 {exp.attachments?.length > 1 ? `Bills (${exp.attachments.length})` : "Bill"}
+                    </Button>
+                  )}
+                  {isAdmin && (exp.attachments?.length > 0 || exp.attachment) && (
+                    <Button small variant="ghost" onClick={() => downloadAttachment(exp, 0)}>⬇️</Button>
+                  )}
                   
                   {!isReadOnly && !isAdmin && exp.status === "pending" && <Button small variant="outline" onClick={() => onEdit(exp)}>Edit</Button>}
                   {!isReadOnly && isAdmin && exp.status !== "rejected" && <Button small variant="primary" onClick={() => onReview(exp)}>{exp.status === "approved" ? "Edit" : "Review"}</Button>}
@@ -2271,22 +2436,22 @@ export default function App() {
           onClose={() => { setDeleteItem(null); setDeleteItemType("expense"); }} />
       )}
 
-      {viewAttachment && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: 20 }}>
-          <div style={{ background: "var(--bg-card)", borderRadius: 16, maxWidth: 700, width: "100%", maxHeight: "90vh", overflow: "auto", color: "var(--text-main)" }}>
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <strong style={{ fontSize: 15 }}>{viewAttachment.attachName}</strong>
-              <div style={{ display: "flex", gap: 10 }}>
-                <Button small variant="outline" onClick={() => downloadAttachment(viewAttachment)}>⬇️ Download</Button>
-                <button onClick={() => setViewAttachment(null)} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "var(--text-light)" }}>✕</button>
-              </div>
-            </div>
-            <div style={{ padding: 20, textAlign: "center" }}>
-              {viewAttachment.attachment.startsWith("data:image") ? <img src={viewAttachment.attachment} alt="receipt" style={{ maxWidth: "100%", borderRadius: 8 }} /> : <iframe src={viewAttachment.attachment} style={{ width: "100%", height: 500, border: "none" }} title="attachment" />}
-            </div>
-          </div>
-        </div>
-      )}
+      {viewAttachment && (() => {
+        // Normalise to array for both legacy and new multi-bill format
+        const billList = viewAttachment.attachments?.length > 0
+          ? viewAttachment.attachments
+          : viewAttachment.attachment
+            ? [{ data: viewAttachment.attachment, name: viewAttachment.attachName || "bill" }]
+            : [];
+        return (
+          <MultiBillViewer
+            bills={billList}
+            exp={viewAttachment}
+            onClose={() => setViewAttachment(null)}
+            onDownload={(idx) => downloadAttachment(viewAttachment, idx)}
+          />
+        );
+      })()}
 
       {/* ── NOTIFICATION PANEL, ALERTS & TOASTS ── */}
       {showNotifPanel && <NotifPanel notifs={notifHistory} onClear={clearHistory} onClose={() => setShowNotifPanel(false)} />}
