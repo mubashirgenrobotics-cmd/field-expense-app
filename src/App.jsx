@@ -81,6 +81,17 @@ function inRange(date, f) {
   return true;
 }
 
+// Human-readable label for a date-range filter, used in section headers.
+function rangeLabel(f) {
+  if (!f || f.mode === "all") return "All time";
+  if (f.mode === "month" && f.month) return new Date(f.month + "-01").toLocaleString("en-IN", { month: "long", year: "numeric" });
+  if (f.mode === "custom") {
+    const d = (s) => s ? new Date(s).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+    return `${d(f.from)} → ${d(f.to)}`;
+  }
+  return "All time";
+}
+
 function fileToBase64(file) {
   return new Promise((res, rej) => {
     const r = new FileReader();
@@ -735,13 +746,12 @@ function SimpleColumnChart({ data, height = 220 }) {
   );
 }
 
-function CustomerExpenseSummary({ expenses, customers, allMonths, isAdmin, engineers }) {
-  const [filterMonth, setFilterMonth] = useState("all");
+function CustomerExpenseSummary({ expenses, customers, allMonths, isAdmin, engineers, dashFilter = { mode: "all" } }) {
   const [selCust, setSelCust] = useState("all");
   const [selEng, setSelEng] = useState("all");
 
-  const filtered = expenses.filter(e => 
-    (filterMonth === "all" || e.date.startsWith(filterMonth)) && 
+  const filtered = expenses.filter(e =>
+    inRange(e.date, dashFilter) &&
     e.status === "approved" &&
     (selEng === "all" || e.engineerId === selEng)
   );
@@ -755,7 +765,10 @@ function CustomerExpenseSummary({ expenses, customers, allMonths, isAdmin, engin
     color: chartColors[i % chartColors.length]
   }));
 
-  const catExps = selCust === "all" ? filtered : filtered.filter(e => (e.customer || "Unassigned") === selCust);
+  // If the period changes and the previously selected customer has no data in it,
+  // fall back to "all" so the chart never renders empty for a stale selection.
+  const activeCust = selCust !== "all" && custNames.includes(selCust) ? selCust : "all";
+  const catExps = activeCust === "all" ? filtered : filtered.filter(e => (e.customer || "Unassigned") === activeCust);
   const catData = CATEGORIES.map(c => ({
     label: c.label,
     value: catExps.filter(e => e.category === c.id).reduce((s, e) => s + e.amount, 0),
@@ -765,7 +778,10 @@ function CustomerExpenseSummary({ expenses, customers, allMonths, isAdmin, engin
   return (
     <Card style={{ marginBottom: 24 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
-        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "var(--text-main)" }}>📍 Expenses Analysis</h3>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "var(--text-main)" }}>📍 Expenses Analysis</h3>
+          <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 4 }}>Approved expenses · {rangeLabel(dashFilter)}</div>
+        </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {isAdmin && engineers && (
             <select value={selEng} onChange={e => setSelEng(e.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1.5px solid var(--border)", background: "var(--input-bg)", color: "var(--text-main)", fontSize: 14 }}>
@@ -773,10 +789,6 @@ function CustomerExpenseSummary({ expenses, customers, allMonths, isAdmin, engin
               {engineers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
           )}
-          <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1.5px solid var(--border)", background: "var(--input-bg)", color: "var(--text-main)", fontSize: 14 }}>
-            <option value="all">All Months</option>
-            {allMonths.map(m => <option key={m} value={m}>{new Date(m + "-01").toLocaleString("en-IN", { month: "short", year: "numeric" })}</option>)}
-          </select>
         </div>
       </div>
 
@@ -789,7 +801,7 @@ function CustomerExpenseSummary({ expenses, customers, allMonths, isAdmin, engin
         <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20 }}>
            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)", marginBottom: 16 }}>Category Breakdown</div>
           <SimpleColumnChart data={catData} />
-          <select value={selCust} onChange={e => setSelCust(e.target.value)} style={{ marginTop: 14, width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--input-bg)", color: "var(--text-main)", fontSize: 13 }}>
+          <select value={activeCust} onChange={e => setSelCust(e.target.value)} style={{ marginTop: 14, width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--input-bg)", color: "var(--text-main)", fontSize: 13 }}>
             <option value="all">All Customers</option>
             {custNames.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
@@ -2131,7 +2143,13 @@ export default function App() {
   const myExpenses = expenses.filter(e => e.engineerId === activeUser.id);
   const approvedFunds = myRequests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
   const approvedExpenses = myExpenses.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
+  // All-time balance — this is the real spendable figure and drives the Add Expense cap.
   const availableBalance = approvedFunds - approvedExpenses;
+  // Period-scoped views for the dashboard, driven by the Filter Period control.
+  const periodMyRequests = myRequests.filter(r => inRange(r.date, dashFilter));
+  const periodMyExpenses = myExpenses.filter(e => inRange(e.date, dashFilter));
+  const periodApprovedFunds = periodMyRequests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
+  const periodApprovedExpenses = periodMyExpenses.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
 
   const allMonths = Array.from(new Set([
     ...expenses.map(e => monthOf(e.date)),
@@ -2405,7 +2423,7 @@ export default function App() {
                 })()}
 
                 <FundSummaryCard expenses={expenses} requests={requests} receivedFunds={receivedFunds} dashFilter={dashFilter} />
-                <CustomerExpenseSummary expenses={expenses} customers={customers} allMonths={allMonths} isAdmin={isAdmin} engineers={engineers} />
+                <CustomerExpenseSummary expenses={expenses} customers={customers} allMonths={allMonths} isAdmin={isAdmin} engineers={engineers} dashFilter={dashFilter} />
                 <EngineerGrid expenses={expenses} requests={requests} dashFilter={dashFilter} engineers={engineers} onViewEngineer={setViewingAsEngineer} />
               </>
             ) : (
@@ -2415,21 +2433,30 @@ export default function App() {
                     <h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800 }}>{isReadOnly ? `Profile: ${activeUser.name}` : `Welcome, ${activeUser.name} 👋`}</h2>
                     <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 14 }}>{activeUser.department}</p>
                   </div>
-                  {!isReadOnly && (
-                    <div style={{ display: "flex", gap: 10 }}>
-                      <Button onClick={() => setShowFundForm(true)} variant="outline">💰 Request Funds</Button>
-                      <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>
+                  <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Filter Period</div>
+                      <DateRangeFilter filter={dashFilter} onChange={setDashFilter} allMonths={allMonths} />
                     </div>
-                  )}
+                    {!isReadOnly && (
+                      <>
+                        <Button onClick={() => setShowFundForm(true)} variant="outline">💰 Request Funds</Button>
+                        <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>
+                      </>
+                    )}
+                  </div>
                 </div>
                 
                 <Card style={{ marginBottom: 24 }}>
-                  <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700 }}>📒 My Ledger</h3>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>📒 My Ledger</h3>
+                    <span style={{ fontSize: 12, color: "var(--text-light)" }}>{rangeLabel(dashFilter)}</span>
+                  </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
                     {[
-                      { label: "Approved Funds", value: fmt(approvedFunds), color: "#10B981", icon: "💰" },
-                      { label: "Approved Expenses", value: fmt(approvedExpenses), color: "#EF4444", icon: "🧾" },
-                      { label: "Available Balance", value: fmt(availableBalance), color: availableBalance < 0 ? "#EF4444" : "#D4A017", icon: "📊" },
+                      { label: "Approved Funds", value: fmt(periodApprovedFunds), color: "#10B981", icon: "💰" },
+                      { label: "Approved Expenses", value: fmt(periodApprovedExpenses), color: "#EF4444", icon: "🧾" },
+                      { label: dashFilter.mode === "all" ? "Available Balance" : "Available Balance (overall)", value: fmt(availableBalance), color: availableBalance < 0 ? "#EF4444" : "#D4A017", icon: "📊" },
                     ].map(item => (
                       <div key={item.label} style={{ background: "var(--input-bg)", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
                         <div style={{ fontSize: 22, marginBottom: 4 }}>{item.icon}</div>
@@ -2440,12 +2467,12 @@ export default function App() {
                   </div>
                 </Card>
                 
-                <CustomerExpenseSummary expenses={myExpenses} customers={customers} allMonths={allMonths} isAdmin={false} />
+                <CustomerExpenseSummary expenses={myExpenses} customers={customers} allMonths={allMonths} isAdmin={false} dashFilter={dashFilter} />
 
                 <Card>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}><h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Recent Expenses</h3><Button small variant="ghost" onClick={() => setTab("expenses")}>View all →</Button></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}><h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Recent Expenses <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-light)" }}>· {rangeLabel(dashFilter)}</span></h3><Button small variant="ghost" onClick={() => setTab("expenses")}>View all →</Button></div>
                   <ExpenseList 
-                    expenses={myExpenses.sort((a,b) => new Date(b.date||0) - new Date(a.date||0)).slice(0, 5)} 
+                    expenses={[...periodMyExpenses].sort((a,b) => new Date(b.date||0) - new Date(a.date||0)).slice(0, 5)} 
                     onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }} 
                     onViewAttachment={setViewAttachment} 
                     onDelete={exp => { setDeleteItem(exp); setDeleteItemType("expense"); }} 
