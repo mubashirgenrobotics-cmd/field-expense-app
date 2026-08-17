@@ -1531,6 +1531,7 @@ function FundRequestForm({ user, onSubmit, onClose, customers }) {
   const [breakdown, setBreakdown] = useState({});
   const [reason, setReason] = useState("");
   const [customer, setCustomer] = useState("");
+  const [date, setDate] = useState(today());
 
   const handleAmountChange = (catId, val) => {
     setBreakdown(prev => ({ ...prev, [catId]: parseFloat(val) || 0 }));
@@ -1539,14 +1540,14 @@ function FundRequestForm({ user, onSubmit, onClose, customers }) {
   const totalAmount = CATEGORIES.reduce((sum, cat) => sum + (breakdown[cat.id] || 0), 0);
 
   const submit = () => {
-    if (totalAmount <= 0 || !reason || !customer) return;
+    if (totalAmount <= 0 || !reason || !customer || !date) return;
     const breakdownText = CATEGORIES.map(c => breakdown[c.id] ? `${c.label}: ${fmt(breakdown[c.id])}` : null).filter(Boolean).join(", ");
 
-    onSubmit({ 
-      id: uid(), engineerId: user.id, engineerName: user.name, 
-      amount: totalAmount, reason: `${reason} (${breakdownText})`, 
-      breakdown, category: "multiple", customer, 
-      status: "pending", date: today(), createdAt: Date.now(), type: "fund_request" 
+    onSubmit({
+      id: uid(), engineerId: user.id, engineerName: user.name,
+      amount: totalAmount, reason: `${reason} (${breakdownText})`,
+      breakdown, category: "multiple", customer,
+      status: "pending", date, createdAt: Date.now(), type: "fund_request"
     });
     onClose();
   };
@@ -1559,10 +1560,15 @@ function FundRequestForm({ user, onSubmit, onClose, customers }) {
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--text-light)" }}>✕</button>
         </div>
         
-        <Field label="Customer *">
-          <CustomerDropdown value={customer} onChange={setCustomer} customers={customers} />
-        </Field>
-        
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Customer *">
+            <CustomerDropdown value={customer} onChange={setCustomer} customers={customers} />
+          </Field>
+          <Field label="Date *">
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
+          </Field>
+        </div>
+
         <div style={{ background: "var(--input-bg)", padding: 16, borderRadius: 12, marginBottom: 14 }}>
           <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--text-muted)", marginBottom: 10, textTransform: "uppercase" }}>Expense Breakdown</label>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -1585,7 +1591,7 @@ function FundRequestForm({ user, onSubmit, onClose, customers }) {
         
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
-          <Button onClick={submit} disabled={totalAmount <= 0 || !reason || !customer} style={{ flex: 1 }}>Submit Request</Button>
+          <Button onClick={submit} disabled={totalAmount <= 0 || !reason || !customer || !date} style={{ flex: 1 }}>Submit Request</Button>
         </div>
       </Card>
     </div>
@@ -2391,7 +2397,7 @@ export default function App() {
             {isAdmin ? (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
-                  <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Admin Dashboard</h2>
+                  <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#D4A017" }}>Welcome, {activeUser.name} 👋</h2>
                   <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Filter Period</div>
@@ -2430,7 +2436,7 @@ export default function App() {
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 16, marginBottom: 24 }}>
                   <div>
-                    <h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800 }}>{isReadOnly ? `Profile: ${activeUser.name}` : `Welcome, ${activeUser.name} 👋`}</h2>
+                    <h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800, color: "#D4A017" }}>{isReadOnly ? `Profile: ${activeUser.name}` : `Welcome, ${activeUser.name} 👋`}</h2>
                     <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 14 }}>{activeUser.department}</p>
                   </div>
                   <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
