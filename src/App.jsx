@@ -1655,6 +1655,8 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
     onClose();
   };
 
+  // Note: bills can be submitted even if the amount exceeds the available balance.
+  // "over" is now purely informational (shows a warning) and no longer blocks submission.
   const over = parseFloat(amount) > availableBalance;
   const canAddMore = attachments.length < MAX_BILLS;
 
@@ -1748,7 +1750,7 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
 
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
-          <Button onClick={submit} disabled={!amount || !description || attachments.length === 0 || over || !customer} style={{ flex: 1 }}>
+          <Button onClick={submit} disabled={!amount || !description || attachments.length === 0 || !customer} style={{ flex: 1 }}>
             {editItem ? "Update Expense" : "Submit Expense"}
           </Button>
         </div>
@@ -2447,7 +2449,7 @@ export default function App() {
                     {!isReadOnly && (
                       <>
                         <Button onClick={() => setShowFundForm(true)} variant="outline">💰 Request Funds</Button>
-                        <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>
+                        <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }}>🧾 Add Expense</Button>
                       </>
                     )}
                   </div>
@@ -2557,7 +2559,7 @@ export default function App() {
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
               <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>{isAdmin ? "All Expenses" : "My Expenses"}</h2>
-              {!isAdmin && !isReadOnly && <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }} disabled={availableBalance <= 0}>🧾 Add Expense</Button>}
+              {!isAdmin && !isReadOnly && <Button onClick={() => { setEditExpense(null); setShowExpenseForm(true); }}>🧾 Add Expense</Button>}
             </div>
             {renderTabFilterUI(true)}
             <Card>
