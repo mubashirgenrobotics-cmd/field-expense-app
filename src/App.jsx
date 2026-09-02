@@ -2464,7 +2464,7 @@ export default function App() {
                     {[
                       { label: "Approved Funds", value: fmt(periodApprovedFunds), color: "#10B981", icon: "💰" },
                       { label: "Approved Expenses", value: fmt(periodApprovedExpenses), color: "#EF4444", icon: "🧾" },
-                      { label: dashFilter.mode === "all" ? "Available Balance" : "Available Balance (overall)", value: fmt(availableBalance), color: availableBalance < 0 ? "#EF4444" : "#D4A017", icon: "📊" },
+                      { label: "Balance", value: fmt(periodApprovedFunds - periodApprovedExpenses), color: (periodApprovedFunds - periodApprovedExpenses) < 0 ? "#EF4444" : "#D4A017", icon: "📊" },
                     ].map(item => (
                       <div key={item.label} style={{ background: "var(--input-bg)", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
                         <div style={{ fontSize: 22, marginBottom: 4 }}>{item.icon}</div>
