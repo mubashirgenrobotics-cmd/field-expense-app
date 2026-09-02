@@ -1469,15 +1469,17 @@ function ReceivedFundModal({ onSave, onClose, editItem }) {
 function AdminReviewModal({ item, type, onClose, onApprove, onReject, customers }) {
   const [amount, setAmount] = useState(item.amount);
   const [customer, setCustomer] = useState(item.customer || "");
+  const [date, setDate] = useState(item.date || "");
   const [comment, setComment] = useState("");
   const [showCommentError, setShowCommentError] = useState(false);
   const amountChanged = parseFloat(amount) !== item.amount;
   const customerChanged = item.customer !== undefined && customer !== (item.customer || "");
-  const changed = amountChanged || customerChanged;
+  const dateChanged = date !== item.date;
+  const changed = amountChanged || customerChanged || dateChanged;
 
   const handleApprove = () => {
     if (changed && !comment.trim()) { setShowCommentError(true); return; }
-    onApprove(item.id, parseFloat(amount), comment, item.amount, customer, item.customer);
+    onApprove(item.id, parseFloat(amount), comment, item.amount, customer, item.customer, date, item.date);
     onClose();
   };
 
@@ -1488,9 +1490,14 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject, customers 
         <div style={{ background: "var(--input-bg)", padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 13, color: "var(--text-main)" }}>
           <strong>Engineer:</strong> {item.engineerName}<br />
           <strong>Reason:</strong> {item.reason || item.description}<br />
-          <strong>Date:</strong> {item.date}<br />
           <strong>Original Amount:</strong> <span style={{ color: "#D4A017", fontWeight: 700 }}>{fmt(item.amount)}</span>
         </div>
+        <Field label="Request Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} /></Field>
+        {dateChanged && (
+          <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 13 }}>
+            <span style={{ color: "#92400E", fontWeight: 600 }}>⚠️ Date edited:</span> <span style={{ color: "#78350F" }}>{item.date} → {date}</span>
+          </div>
+        )}
         <Field label="Approved Amount (₹)"><input type="number" value={amount} onChange={e => setAmount(e.target.value)} style={inputStyle} /></Field>
         {amountChanged && (
           <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 13 }}>
@@ -2174,19 +2181,25 @@ export default function App() {
   const saveCustomer = async (c) => await setDoc(doc(db, "customers", c.id), c);
   const deleteCustomer = async (id) => await deleteDoc(doc(db, "customers", id));
 
-  const approveItem = async (col, id, finalAmount, comment, originalAmount, finalCustomer, originalCustomer) => {
+  const approveItem = async (col, id, finalAmount, comment, originalAmount, finalCustomer, originalCustomer, finalDate, originalDate) => {
     const updates = { status: "approved", amount: finalAmount };
     const existing = col === "expenses" ? expenses.find(e => e.id === id) : requests.find(r => r.id === id);
     const customerChanged = originalCustomer !== undefined && finalCustomer !== (originalCustomer || "");
+    const dateChanged = originalDate !== undefined && finalDate !== originalDate;
     if (customerChanged) updates.customer = finalCustomer;
-    if (finalAmount !== originalAmount || customerChanged || comment) {
+    if (dateChanged) updates.date = finalDate;
+    if (finalAmount !== originalAmount || customerChanged || dateChanged || comment) {
       const log = [...(existing?.editLog || [])];
       const logEntry = { date: today(), before: originalAmount, after: finalAmount, comment: comment || "" };
-      // Only include customer fields when they actually changed — Firestore
+      // Only include customer/date fields when they actually changed — Firestore
       // rejects the whole write if any field is explicitly `undefined`.
       if (customerChanged) {
         logEntry.customerBefore = originalCustomer || "";
         logEntry.customerAfter = finalCustomer;
+      }
+      if (dateChanged) {
+        logEntry.dateBefore = originalDate || "";
+        logEntry.dateAfter = finalDate;
       }
       log.push(logEntry);
       updates.editLog = log;
@@ -2594,7 +2607,7 @@ export default function App() {
 
       {reviewItem && !isReadOnly && (
         <AdminReviewModal item={reviewItem} type={reviewItem.type} onClose={() => setReviewItem(null)} customers={customers}
-          onApprove={(id, amt, comment, origAmt, finalCustomer, origCustomer) => approveItem(reviewItem.type === "expense" ? "expenses" : "requests", id, amt, comment, origAmt, finalCustomer, origCustomer)}
+          onApprove={(id, amt, comment, origAmt, finalCustomer, origCustomer, finalDate, origDate) => approveItem(reviewItem.type === "expense" ? "expenses" : "requests", id, amt, comment, origAmt, finalCustomer, origCustomer, finalDate, origDate)}
           onReject={(id, comment) => rejectItem(reviewItem.type === "expense" ? "expenses" : "requests", id, comment)} />
       )}
 
