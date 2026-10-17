@@ -1850,6 +1850,9 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
                     {entry.customerBefore !== undefined && entry.customerBefore !== entry.customerAfter && (
                       <span>Customer: {entry.customerBefore || "(none)"} → <strong>{entry.customerAfter || "(none)"}</strong></span>
                     )}
+                    {entry.dateBefore !== undefined && entry.dateBefore !== entry.dateAfter && (
+                      <span>Date: {entry.dateBefore || "(none)"} → <strong>{entry.dateAfter || "(none)"}</strong></span>
+                    )}
                     {entry.comment && <span style={{ color: "#92400E" }}>"{entry.comment}"</span>}
                   </div>
                 ))}
@@ -1917,6 +1920,23 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
                 {!isReadOnly && isAdmin && <Button small variant="danger" onClick={() => onDelete(req)}>🗑️</Button>}
               </div>
             </div>
+            {hasEditLog && (
+              <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                {req.editLog.map((entry, i) => (
+                  <div key={i} style={{ fontSize: 12, color: "#78350F", background: "#FFFBEB", borderRadius: 6, padding: "6px 10px", marginBottom: 4, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                    <span>📝 <strong>{entry.date}</strong></span>
+                    <span>{fmt(entry.before)} → <strong>{fmt(entry.after)}</strong></span>
+                    {entry.customerBefore !== undefined && entry.customerBefore !== entry.customerAfter && (
+                      <span>Customer: {entry.customerBefore || "(none)"} → <strong>{entry.customerAfter || "(none)"}</strong></span>
+                    )}
+                    {entry.dateBefore !== undefined && entry.dateBefore !== entry.dateAfter && (
+                      <span>Date: {entry.dateBefore || "(none)"} → <strong>{entry.dateAfter || "(none)"}</strong></span>
+                    )}
+                    {entry.comment && <span style={{ color: "#92400E" }}>"{entry.comment}"</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
       })}
