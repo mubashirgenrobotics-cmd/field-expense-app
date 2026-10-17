@@ -1914,6 +1914,14 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
                 <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{req.reason}</div>
                 {req.customer && <div style={{ fontSize: 12, color: "#7C3AED", fontWeight: 600, marginTop: 2 }}>👥 {req.customer}</div>}
                 {isAdmin && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 2 }}>By: {req.engineerName} · {req.date}</div>}
+                {(() => {
+                  const last = hasEditLog ? [...req.editLog].reverse().find(e => e.comment) : null;
+                  return last ? (
+                    <div style={{ marginTop: 6, fontSize: 12, color: "#92400E", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 6, padding: "5px 10px", display: "inline-block", textAlign: "left" }}>
+                      💬 <strong>Admin comment:</strong> {last.comment}
+                    </div>
+                  ) : null;
+                })()}
               </div>
               <div style={{ flexShrink: 0, display: "flex", gap: 6 }}>
                 {!isReadOnly && isAdmin && req.status !== "rejected" && <Button small variant="primary" onClick={() => onReview(req)}>{req.status === "approved" ? "Edit" : "Review"}</Button>}
