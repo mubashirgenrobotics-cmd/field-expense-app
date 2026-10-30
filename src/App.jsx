@@ -123,16 +123,141 @@ const compressImage = (file) => {
   });
 };
 
-function downloadAttachment(exp, idx = 0) {
+// ─── BILL DOWNLOAD (named file + reason/customer stamp) ──────────────────────
+const safeFilePart = (s) =>
+  String(s ?? "").trim().replace(/[\\/:*?"<>|]+/g, "").replace(/\s+/g, "_");
+
+const loadExternalScript = (src, globalName) =>
+  new Promise((resolve, reject) => {
+    if (window[globalName]) return resolve(window[globalName]);
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve(window[globalName]);
+    s.onerror = () => reject(new Error("Failed to load " + src));
+    document.head.appendChild(s);
+  });
+
+// Cut text so it fits in maxWidth (canvas context must already have its font set)
+const fitCanvasText = (ctx, text, maxWidth) => {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(t + "…").width > maxWidth) t = t.slice(0, -1);
+  return t + "…";
+};
+
+// Stamp "Reason / Customer" in the bottom-left corner of an image bill
+const stampImageBill = (dataUrl, lines) =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+
+      const fontSize = Math.max(11, Math.round(canvas.width * 0.022)); // small text
+      const pad = Math.round(fontSize * 0.5);
+      const lineH = Math.round(fontSize * 1.25);
+      ctx.font = `${fontSize}px Arial, sans-serif`;
+      ctx.textBaseline = "alphabetic";
+
+      const maxW = canvas.width - pad * 4;
+      const fitted = lines.map(l => fitCanvasText(ctx, l, maxW));
+      const boxW = Math.max(...fitted.map(l => ctx.measureText(l).width)) + pad * 2;
+      const boxH = fitted.length * lineH + pad;
+
+      // light backing so the text is readable on any bill
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fillRect(0, canvas.height - boxH, boxW, boxH);
+      ctx.fillStyle = "#111";
+      fitted.forEach((l, i) => {
+        ctx.fillText(l, pad, canvas.height - boxH + pad * 0.4 + lineH * (i + 1) - Math.round(fontSize * 0.2));
+      });
+
+      const png = dataUrl.startsWith("data:image/png");
+      resolve({ url: canvas.toDataURL(png ? "image/png" : "image/jpeg", 0.92), ext: png ? "png" : "jpg" });
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+
+// Stamp "Reason / Customer" in the bottom-left corner of every page of a PDF bill
+const stampPdfBill = async (dataUrl, lines) => {
+  const { PDFDocument, StandardFonts, rgb } = await loadExternalScript(
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js", "PDFLib");
+  const bin = atob(dataUrl.split(",")[1]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+  const pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const clean = (t) => t.replace(/₹/g, "Rs.").replace(/[^\x20-\x7E\xA0-\xFF]/g, "?"); // Helvetica = Latin only
+  const size = 7;
+  const pad = 3;
+
+  pdfDoc.getPages().forEach(page => {
+    const { width } = page.getSize();
+    const maxW = width - 20;
+    const fitted = lines.map(l => {
+      let t = clean(l);
+      while (t.length > 1 && font.widthOfTextAtSize(t, size) > maxW) t = t.slice(0, -1);
+      return t;
+    });
+    const boxW = Math.max(...fitted.map(l => font.widthOfTextAtSize(l, size))) + pad * 2;
+    const boxH = fitted.length * (size + 2) + pad * 2;
+    page.drawRectangle({ x: 4, y: 4, width: boxW, height: boxH, color: rgb(1, 1, 1), opacity: 0.85 });
+    fitted.forEach((l, i) => {
+      page.drawText(l, { x: 4 + pad, y: 4 + pad + (fitted.length - 1 - i) * (size + 2) + 1, size, font, color: rgb(0.07, 0.07, 0.07) });
+    });
+  });
+
+  const out = await pdfDoc.save();
+  let s = "";
+  for (let i = 0; i < out.length; i += 0x8000) s += String.fromCharCode.apply(null, out.subarray(i, i + 0x8000));
+  return { url: "data:application/pdf;base64," + btoa(s), ext: "pdf" };
+};
+
+async function downloadAttachment(exp, idx = 0) {
   // Support both legacy single attachment and new multi-attachment array
   const attachList = exp.attachments || (exp.attachment ? [{ data: exp.attachment, name: exp.attachName }] : []);
   const item = attachList[idx];
   if (!item) return;
+
+  // File name: engineer name - expense date - customer name - amount
+  const amt = Number(exp.amount || 0);
+  const amtStr = Number.isInteger(amt) ? String(amt) : amt.toFixed(2);
+  const baseName = [
+    safeFilePart(exp.engineerName) || "Engineer",
+    exp.date,
+    safeFilePart(exp.customer) || "NoCustomer",
+    amtStr,
+  ].join("-") + (attachList.length > 1 ? `-bill${idx + 1}` : "");
+
+  // Text written in the bottom-left corner of the bill
+  const lines = [
+    `Reason: ${exp.description || "—"}`,
+    `Customer: ${exp.customer || "—"}`,
+  ];
+
+  const isPdf = item.data.startsWith("data:application/pdf");
+  const isImg = item.data.startsWith("data:image");
+  let url = item.data;
+  let ext = item.name && item.name.includes(".") ? item.name.split(".").pop() : (isPdf ? "pdf" : "jpg");
+
+  try {
+    if (isImg) ({ url, ext } = await stampImageBill(item.data, lines));
+    else if (isPdf) ({ url, ext } = await stampPdfBill(item.data, lines));
+  } catch (err) {
+    console.error("Could not stamp bill, downloading original:", err);
+  }
+
   const a = document.createElement("a");
-  a.href = item.data;
-  const ext = item.name ? item.name.split(".").pop() : (item.data.startsWith("data:image/png") ? "png" : item.data.startsWith("data:application/pdf") ? "pdf" : "jpg");
-  a.download = `bill${attachList.length > 1 ? `-${idx + 1}` : ""}-${exp.engineerName.replace(/\s+/g, "_")}-${exp.date}-${exp.id}.${ext}`;
+  a.href = url;
+  a.download = `${baseName}.${ext}`;
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
 }
 
 async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, requests, dateFrom, dateTo }) {
