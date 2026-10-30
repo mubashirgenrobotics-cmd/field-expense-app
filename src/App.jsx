@@ -156,24 +156,12 @@ const stampImageBill = (dataUrl, lines) =>
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0);
 
-      const fontSize = Math.max(11, Math.round(canvas.width * 0.022)); // small text
-      const pad = Math.round(fontSize * 0.5);
-      const lineH = Math.round(fontSize * 1.25);
+      const fontSize = Math.max(9, Math.round(canvas.width * 0.016)); // small text
+      const pad = Math.round(fontSize * 0.6);
       ctx.font = `${fontSize}px Arial, sans-serif`;
       ctx.textBaseline = "alphabetic";
-
-      const maxW = canvas.width - pad * 4;
-      const fitted = lines.map(l => fitCanvasText(ctx, l, maxW));
-      const boxW = Math.max(...fitted.map(l => ctx.measureText(l).width)) + pad * 2;
-      const boxH = fitted.length * lineH + pad;
-
-      // light backing so the text is readable on any bill
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      ctx.fillRect(0, canvas.height - boxH, boxW, boxH);
       ctx.fillStyle = "#111";
-      fitted.forEach((l, i) => {
-        ctx.fillText(l, pad, canvas.height - boxH + pad * 0.4 + lineH * (i + 1) - Math.round(fontSize * 0.2));
-      });
+      ctx.fillText(fitCanvasText(ctx, lines.join(", "), canvas.width - pad * 2), pad, canvas.height - pad);
 
       const png = dataUrl.startsWith("data:image/png");
       resolve({ url: canvas.toDataURL(png ? "image/png" : "image/jpeg", 0.92), ext: png ? "png" : "jpg" });
@@ -193,23 +181,14 @@ const stampPdfBill = async (dataUrl, lines) => {
   const pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const clean = (t) => t.replace(/₹/g, "Rs.").replace(/[^\x20-\x7E\xA0-\xFF]/g, "?"); // Helvetica = Latin only
-  const size = 7;
-  const pad = 3;
+  const size = 5.5;
+  const pad = 4;
 
   pdfDoc.getPages().forEach(page => {
     const { width } = page.getSize();
-    const maxW = width - 20;
-    const fitted = lines.map(l => {
-      let t = clean(l);
-      while (t.length > 1 && font.widthOfTextAtSize(t, size) > maxW) t = t.slice(0, -1);
-      return t;
-    });
-    const boxW = Math.max(...fitted.map(l => font.widthOfTextAtSize(l, size))) + pad * 2;
-    const boxH = fitted.length * (size + 2) + pad * 2;
-    page.drawRectangle({ x: 4, y: 4, width: boxW, height: boxH, color: rgb(1, 1, 1), opacity: 0.85 });
-    fitted.forEach((l, i) => {
-      page.drawText(l, { x: 4 + pad, y: 4 + pad + (fitted.length - 1 - i) * (size + 2) + 1, size, font, color: rgb(0.07, 0.07, 0.07) });
-    });
+    let t = clean(lines.join(", "));
+    while (t.length > 1 && font.widthOfTextAtSize(t, size) > width - pad * 2) t = t.slice(0, -1);
+    page.drawText(t, { x: pad, y: pad, size, font, color: rgb(0.07, 0.07, 0.07) });
   });
 
   const out = await pdfDoc.save();
@@ -234,11 +213,8 @@ async function downloadAttachment(exp, idx = 0) {
     amtStr,
   ].join("-") + (attachList.length > 1 ? `-bill${idx + 1}` : "");
 
-  // Text written in the bottom-left corner of the bill
-  const lines = [
-    `Reason: ${exp.description || "—"}`,
-    `Customer: ${exp.customer || "—"}`,
-  ];
+  // Text written in the bottom-left corner of the bill (one line: description, customer)
+  const lines = [exp.description || "—", exp.customer || "—"]; // joined as "description, customer"
 
   const isPdf = item.data.startsWith("data:application/pdf");
   const isImg = item.data.startsWith("data:image");
