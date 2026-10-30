@@ -145,7 +145,7 @@ const fitCanvasText = (ctx, text, maxWidth) => {
   return t + "…";
 };
 
-// Stamp "Reason / Customer" in the bottom-left corner of an image bill
+// Stamp "description, customer" in the bottom-left corner of an image bill
 const stampImageBill = (dataUrl, lines) =>
   new Promise((resolve, reject) => {
     const img = new Image();
@@ -170,7 +170,7 @@ const stampImageBill = (dataUrl, lines) =>
     img.src = dataUrl;
   });
 
-// Stamp "Reason / Customer" in the bottom-left corner of every page of a PDF bill
+// Stamp "description, customer" in the bottom-left corner of every page of a PDF bill
 const stampPdfBill = async (dataUrl, lines) => {
   const { PDFDocument, StandardFonts, rgb } = await loadExternalScript(
     "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js", "PDFLib");
@@ -405,6 +405,10 @@ async function generateExpenseReportPDF({ engineer, expenses, receivedFunds, req
         if (imgH > maxH) { imgH = maxH; imgW = (imgProps.width / imgProps.height) * maxH; }
         const imgX = M + (maxW - imgW) / 2;
         pdf.addImage(imgData, "JPEG", imgX, 46, imgW, imgH);
+        // small "description, customer" text on the bill photo, bottom-left corner
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(5.5); pdf.setTextColor(15, 23, 42);
+        const stamp = `${exp.description || "-"}, ${exp.customer || "-"}`.replace(/₹/g, "Rs.");
+        pdf.text(pdf.splitTextToSize(stamp, imgW - 3)[0], imgX + 1.5, 46 + imgH - 1.5);
       } catch (e) {
         pdf.setTextColor(107,114,128); pdf.setFontSize(10);
         pdf.text("[Image could not be rendered]", W/2, 130, { align: "center" });
