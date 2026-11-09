@@ -81,6 +81,14 @@ function inRange(date, f) {
   return true;
 }
 
+// Returns the "YYYY-MM" string for the month before the given "YYYY-MM".
+function prevMonthOf(ym) {
+  if (!ym) return null;
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 2, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 // Human-readable label for a date-range filter, used in section headers.
 function rangeLabel(f) {
   if (!f || f.mode === "all") return "All time";
@@ -2145,6 +2153,20 @@ function EngineerGrid({ expenses, requests, dashFilter, engineers, onViewEnginee
         const approvedBills = engExps.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
         const pendingBills = engExps.filter(e => e.status === "pending").reduce((s, e) => s + e.amount, 0);
         const bal = funds - approvedBills;
+
+        // Previous-month balance / reimbursement (only when filtering by a single month)
+        const showPrev = dashFilter?.mode === "month" && !!dashFilter.month;
+        let prevBal = 0;
+        if (showPrev) {
+          const pm = prevMonthOf(dashFilter.month);
+          const prevFunds = requests
+            .filter(r => r.engineerId === eng.id && r.status === "approved" && monthOf(r.date) === pm)
+            .reduce((sum, r) => sum + r.amount, 0);
+          const prevBills = expenses
+            .filter(e => e.engineerId === eng.id && e.status === "approved" && monthOf(e.date) === pm)
+            .reduce((sum, e) => sum + e.amount, 0);
+          prevBal = prevFunds - prevBills;
+        }
         return (
           <Card key={eng.id} style={{ padding: 16, cursor: "pointer", transition: "transform 0.15s" }} onClick={() => onViewEngineer(eng)} onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"} onMouseLeave={e => e.currentTarget.style.transform = "none"}>
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
@@ -2156,6 +2178,14 @@ function EngineerGrid({ expenses, requests, dashFilter, engineers, onViewEnginee
             </div>
             <div style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Funds Distributed</span><span style={{ color: "#10B981", fontWeight: 700 }}>{fmt(funds)}</span></div>
+              {showPrev && (
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted)" }}>
+                    Prev. Month {prevBal < 0 ? "Reimbursement" : "Balance"}
+                  </span>
+                  <span style={{ color: prevBal < 0 ? "#EF4444" : "#D4A017", fontWeight: 700 }}>{fmt(prevBal)}</span>
+                </div>
+              )}
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Submitted Bills</span><span style={{ color: "#EF4444", fontWeight: 700 }}>{fmt(approvedBills)}</span></div>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Pending Bills</span><span style={{ color: "#F59E0B", fontWeight: 700 }}>{fmt(pendingBills)}</span></div>
               <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, borderTop: "1px solid var(--border)" }}><span style={{ color: "var(--text-main)", fontWeight: 600 }}>Balance</span><span style={{ color: bal < 0 ? "#EF4444" : "#D4A017", fontWeight: 700 }}>{fmt(bal)}</span></div>
