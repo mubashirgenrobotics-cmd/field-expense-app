@@ -2152,7 +2152,6 @@ function EngineerGrid({ expenses, requests, dashFilter, engineers, onViewEnginee
         const funds = engReqs.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
         const approvedBills = engExps.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
         const pendingBills = engExps.filter(e => e.status === "pending").reduce((s, e) => s + e.amount, 0);
-        const bal = funds - approvedBills;
 
         // Previous-month balance / reimbursement (only when filtering by a single month)
         const showPrev = dashFilter?.mode === "month" && !!dashFilter.month;
@@ -2167,6 +2166,8 @@ function EngineerGrid({ expenses, requests, dashFilter, engineers, onViewEnginee
             .reduce((sum, e) => sum + e.amount, 0);
           prevBal = prevFunds - prevBills;
         }
+        // Balance = previous month carry-over + this month's funds − bills
+        const bal = prevBal + funds - approvedBills;
         return (
           <Card key={eng.id} style={{ padding: 16, cursor: "pointer", transition: "transform 0.15s" }} onClick={() => onViewEngineer(eng)} onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"} onMouseLeave={e => e.currentTarget.style.transform = "none"}>
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
@@ -2179,11 +2180,11 @@ function EngineerGrid({ expenses, requests, dashFilter, engineers, onViewEnginee
             <div style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Funds Distributed</span><span style={{ color: "#10B981", fontWeight: 700 }}>{fmt(funds)}</span></div>
               {showPrev && (
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "var(--text-muted)" }}>
-                    Prev. Month {prevBal < 0 ? "Reimbursement" : "Balance"}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, textAlign: "left" }}>
+                  <span style={{ color: "var(--text-muted)", whiteSpace: "nowrap", textAlign: "left" }}>
+                    {prevBal < 0 ? "Prev. Reimbursement" : "Prev. Balance"}
                   </span>
-                  <span style={{ color: prevBal < 0 ? "#EF4444" : "#D4A017", fontWeight: 700 }}>{fmt(prevBal)}</span>
+                  <span style={{ color: prevBal < 0 ? "#EF4444" : "#D4A017", fontWeight: 700, whiteSpace: "nowrap" }}>{fmt(prevBal)}</span>
                 </div>
               )}
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Submitted Bills</span><span style={{ color: "#EF4444", fontWeight: 700 }}>{fmt(approvedBills)}</span></div>
