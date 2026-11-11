@@ -1571,7 +1571,7 @@ function ReceivedFundModal({ onSave, onClose, editItem }) {
   );
 }
 
-function AdminReviewModal({ item, type, onClose, onApprove, onReject, customers }) {
+function AdminReviewModal({ item, type, onClose, onApprove, onReject, onComment, customers }) {
   const [amount, setAmount] = useState(item.amount);
   const [customer, setCustomer] = useState(item.customer || "");
   const [date, setDate] = useState(item.date || "");
@@ -1588,9 +1588,16 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject, customers 
     onClose();
   };
 
+  // Save a comment only — status, amount, customer and date stay untouched
+  const handleCommentOnly = () => {
+    if (!comment.trim()) { setShowCommentError(true); return; }
+    onComment(item.id, comment.trim());
+    onClose();
+  };
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
-      <Card style={{ width: "100%", maxWidth: 420 }}>
+      <Card style={{ width: "100%", maxWidth: 420, maxHeight: "90vh", overflowY: "auto" }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18, fontWeight: 700 }}>Review {type === "request" ? "Fund Request" : "Expense"}</h3>
         <div style={{ background: "var(--input-bg)", padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 13, color: "var(--text-main)" }}>
           <strong>Engineer:</strong> {item.engineerName}<br />
@@ -1627,8 +1634,9 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject, customers 
             rows={3}
             style={{ ...inputStyle, resize: "vertical", ...(showCommentError ? { border: "1.5px solid #EF4444" } : {}) }}
           />
-          {showCommentError && <div style={{ color: "#EF4444", fontSize: 12, marginTop: 4 }}>⚠️ Please add a comment explaining the change before approving.</div>}
+          {showCommentError && <div style={{ color: "#EF4444", fontSize: 12, marginTop: 4 }}>⚠️ Please add a comment first.</div>}
         </Field>
+        <Button onClick={handleCommentOnly} variant="outline" style={{ width: "100%", marginBottom: 10 }}>💬 Comment</Button>
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
           <Button onClick={() => { onReject(item.id, comment); onClose(); }} variant="danger" style={{ flex: 1 }}>Reject</Button>
@@ -1754,6 +1762,26 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
 
   const submit = () => {
     if (!amount || !description || attachments.length === 0 || !customer) return;
+    // When an engineer edits a pending expense, record what changed in the log
+    let editLog = editItem?.editLog || [];
+    if (editItem) {
+      const newAmt = parseFloat(amount);
+      const changes = [];
+      if (newAmt !== editItem.amount) changes.push("amount");
+      if (customer !== (editItem.customer || "")) changes.push("customer");
+      if (date !== editItem.date) changes.push("date");
+      if (description !== editItem.description) changes.push("description");
+      if (category !== editItem.category) changes.push("category");
+      const oldCount = editItem.attachments?.length ?? (editItem.attachment ? 1 : 0);
+      if (attachments.length !== oldCount) changes.push("bills");
+      if (changes.length) {
+        editLog = [...editLog, {
+          type: "engineer_edit", date: today(), by: "engineer",
+          before: editItem.amount, after: newAmt,
+          comment: `Edited by engineer (${changes.join(", ")})`,
+        }];
+      }
+    }
     // Keep legacy fields populated with first attachment for backward compat
     onSubmit({
       id: editItem?.id || uid(), engineerId: user.id, engineerName: user.name,
@@ -1762,7 +1790,7 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
       attachment: attachments[0]?.data,   // legacy compat
       attachName: attachments[0]?.name,   // legacy compat
       customer, type: "expense", status: "pending",
-      createdAt: editItem?.createdAt || Date.now(), editLog: editItem?.editLog || [],
+      createdAt: editItem?.createdAt || Date.now(), editLog,
     });
     onClose();
   };
@@ -1853,7 +1881,7 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
               ✅ Maximum {MAX_BILLS} bills attached
             </div>
           )}
-          <input ref={fileRef} type="file" accept="image/*,.pdf" capture="environment" multiple style={{ display: "none" }} onChange={e => addFiles(e.target.files)} />
+          <input ref={fileRef} type="file" accept="image/*,.pdf" multiple style={{ display: "none" }} onChange={async e => { await addFiles(e.target.files); e.target.value = ""; }} />
         </Field>
 
         {attachments.length === 0 && (
@@ -1865,6 +1893,40 @@ function ExpenseForm({ user, availableBalance, onSubmit, onClose, editItem, cust
           <Button onClick={submit} disabled={!amount || !description || attachments.length === 0 || !customer} style={{ flex: 1 }}>
             {editItem ? "Update Expense" : "Submit Expense"}
           </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function CommentModal({ item, onSave, onClose }) {
+  const [text, setText] = useState("");
+  const [err, setErr] = useState(false);
+  const save = () => {
+    if (!text.trim()) { setErr(true); return; }
+    onSave(item.id, text.trim());
+    onClose();
+  };
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
+      <Card style={{ width: "100%", maxWidth: 420 }}>
+        <h3 style={{ margin: "0 0 12px", fontSize: 18, fontWeight: 700 }}>💬 Comment</h3>
+        <div style={{ background: "var(--input-bg)", padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 13, color: "var(--text-main)" }}>
+          <strong>{item.description}</strong> · <span style={{ color: "#D4A017", fontWeight: 700 }}>{fmt(item.amount)}</span>
+        </div>
+        <Field label="Your comment">
+          <textarea
+            value={text}
+            onChange={e => { setText(e.target.value); if (err) setErr(false); }}
+            placeholder="Add a note for the admin..."
+            rows={3}
+            style={{ ...inputStyle, resize: "vertical", ...(err ? { border: "1.5px solid #EF4444" } : {}) }}
+          />
+          {err && <div style={{ color: "#EF4444", fontSize: 12, marginTop: 4 }}>⚠️ Please type a comment.</div>}
+        </Field>
+        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
+          <Button onClick={save} style={{ flex: 1 }}>Comment</Button>
         </div>
       </Card>
     </div>
@@ -1887,7 +1949,7 @@ function ConfirmDeleteModal({ item, itemType, onConfirm, onClose }) {
   );
 }
 
-function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, isAdmin, filter, isReadOnly, sortBy = "date" }) {
+function ExpenseList({ expenses, onEdit, onComment, onViewAttachment, onReview, onDelete, isAdmin, filter, isReadOnly, sortBy = "date" }) {
   const cat = (id) => CATEGORIES.find(c => c.id === id) || CATEGORIES[3];
   
   const filtered = expenses
@@ -1940,6 +2002,7 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
                     <Button small variant="ghost" onClick={() => downloadAttachment(exp, 0)}>⬇️</Button>
                   )}
                   
+                  {!isReadOnly && !isAdmin && onComment && <Button small variant="ghost" onClick={() => onComment(exp)}>💬 Comment</Button>}
                   {!isReadOnly && !isAdmin && exp.status === "pending" && <Button small variant="outline" onClick={() => onEdit(exp)}>Edit</Button>}
                   {!isReadOnly && isAdmin && exp.status !== "rejected" && <Button small variant="primary" onClick={() => onReview(exp)}>{exp.status === "approved" ? "Edit" : "Review"}</Button>}
                   {!isReadOnly && isAdmin && <Button small variant="danger" onClick={() => onDelete(exp)}>🗑️</Button>}
@@ -1949,6 +2012,11 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
             {hasEditLog && (
               <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
                 {exp.editLog.map((entry, i) => (
+                  entry.type === "comment" ? (
+                    <div key={i} style={{ fontSize: 12, color: "#1E3A8A", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 6, padding: "6px 10px", marginBottom: 4 }}>
+                      💬 <strong>{entry.by === "engineer" ? "Engineer comment" : "Admin comment"}</strong> · {entry.date}: {entry.comment}
+                    </div>
+                  ) : (
                   <div key={i} style={{ fontSize: 12, color: "#78350F", background: "#FFFBEB", borderRadius: 6, padding: "6px 10px", marginBottom: 4, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                     <span>📝 <strong>{entry.date}</strong></span>
                     <span>{fmt(entry.before)} → <strong>{fmt(entry.after)}</strong></span>
@@ -1960,6 +2028,7 @@ function ExpenseList({ expenses, onEdit, onViewAttachment, onReview, onDelete, i
                     )}
                     {entry.comment && <span style={{ color: "#92400E" }}>"{entry.comment}"</span>}
                   </div>
+                  )
                 ))}
               </div>
             )}
@@ -2036,6 +2105,11 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
             {hasEditLog && (
               <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
                 {req.editLog.map((entry, i) => (
+                  entry.type === "comment" ? (
+                    <div key={i} style={{ fontSize: 12, color: "#1E3A8A", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 6, padding: "6px 10px", marginBottom: 4 }}>
+                      💬 <strong>{entry.by === "engineer" ? "Engineer comment" : "Admin comment"}</strong> · {entry.date}: {entry.comment}
+                    </div>
+                  ) : (
                   <div key={i} style={{ fontSize: 12, color: "#78350F", background: "#FFFBEB", borderRadius: 6, padding: "6px 10px", marginBottom: 4, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                     <span>📝 <strong>{entry.date}</strong></span>
                     <span>{fmt(entry.before)} → <strong>{fmt(entry.after)}</strong></span>
@@ -2047,6 +2121,7 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
                     )}
                     {entry.comment && <span style={{ color: "#92400E" }}>"{entry.comment}"</span>}
                   </div>
+                  )
                 ))}
               </div>
             )}
@@ -2214,6 +2289,7 @@ export default function App() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [editReceivedFund, setEditReceivedFund] = useState(null);
   const [editExpense, setEditExpense] = useState(null);
+  const [commentExpense, setCommentExpense] = useState(null);
   const [reviewItem, setReviewItem] = useState(null);
   const [viewAttachment, setViewAttachment] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
@@ -2381,6 +2457,22 @@ export default function App() {
     } catch (err) {
       console.error("Reject failed:", err);
       alert(`Could not reject this item: ${err.message || err}`);
+    }
+  };
+
+  // Admin comment without changing status / amount / customer / date
+  const commentItem = async (col, id, comment, by = "admin") => {
+    const existing = col === "expenses" ? expenses.find(e => e.id === id) : requests.find(r => r.id === id);
+    const log = [...(existing?.editLog || [])];
+    log.push({
+      type: "comment", date: today(), by,
+      before: existing?.amount ?? 0, after: existing?.amount ?? 0, comment,
+    });
+    try {
+      await updateDoc(doc(db, col, id), { editLog: log });
+    } catch (err) {
+      console.error("Comment failed:", err);
+      alert(`Could not save the comment: ${err.message || err}`);
     }
   };
 
@@ -2651,6 +2743,7 @@ export default function App() {
                   <ExpenseList 
                     expenses={[...periodMyExpenses].sort((a,b) => new Date(b.date||0) - new Date(a.date||0)).slice(0, 5)} 
                     onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }} 
+                    onComment={e => setCommentExpense(e)}
                     onViewAttachment={setViewAttachment} 
                     onDelete={exp => { setDeleteItem(exp); setDeleteItemType("expense"); }} 
                     filter={{ dateRange: { mode: "all" }, status: "all" }} 
@@ -2734,6 +2827,7 @@ export default function App() {
             <Card>
               <ExpenseList expenses={isAdmin ? expenses : myExpenses}
                 onEdit={e => { setEditExpense(e); setShowExpenseForm(true); }}
+                onComment={e => setCommentExpense(e)}
                 onViewAttachment={setViewAttachment}
                 onReview={exp => setReviewItem(exp)}
                 onDelete={exp => { setDeleteItem(exp); setDeleteItemType("expense"); }}
@@ -2761,10 +2855,16 @@ export default function App() {
       {showReceivedFundModal && isAdmin && <ReceivedFundModal onSave={saveReceivedFund} onClose={() => { setShowReceivedFundModal(false); setEditReceivedFund(null); }} editItem={editReceivedFund} />}
       {showReportModal && isAdmin && <ExpenseReportModal engineers={engineers} expenses={expenses} receivedFunds={receivedFunds} requests={requests} onClose={() => setShowReportModal(false)} />}
 
+      {commentExpense && !isReadOnly && !isAdmin && (
+        <CommentModal item={commentExpense} onClose={() => setCommentExpense(null)}
+          onSave={(id, text) => commentItem("expenses", id, text, "engineer")} />
+      )}
+
       {reviewItem && !isReadOnly && (
         <AdminReviewModal item={reviewItem} type={reviewItem.type} onClose={() => setReviewItem(null)} customers={customers}
           onApprove={(id, amt, comment, origAmt, finalCustomer, origCustomer, finalDate, origDate) => approveItem(reviewItem.type === "expense" ? "expenses" : "requests", id, amt, comment, origAmt, finalCustomer, origCustomer, finalDate, origDate)}
-          onReject={(id, comment) => rejectItem(reviewItem.type === "expense" ? "expenses" : "requests", id, comment)} />
+          onReject={(id, comment) => rejectItem(reviewItem.type === "expense" ? "expenses" : "requests", id, comment)}
+          onComment={(id, comment) => commentItem(reviewItem.type === "expense" ? "expenses" : "requests", id, comment)} />
       )}
 
       {deleteItem && !isReadOnly && (
