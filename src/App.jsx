@@ -450,12 +450,30 @@ function useNotifications(user) {
   
   // 🔥 UPDATED: Very noisy, loud continuous alarm clock sound
   const audioRef = useRef(typeof Audio !== "undefined" ? new Audio("https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg") : null);
+  const alarmTimerRef = useRef(null); // auto-stop timer for the alarm
+  const ALARM_MAX_MS = 30000;         // alarm rings for at most 30 seconds
 
   useEffect(() => {
     if (user && Notification?.permission === "default") {
       requestNotifPermission().then(p => setPermGranted(p === "granted"));
     }
   }, [user]);
+
+  const stopSound = useCallback(() => {
+    if (alarmTimerRef.current) { clearTimeout(alarmTimerRef.current); alarmTimerRef.current = null; }
+    setUrgentAlert(null); // Hide the urgent modal
+    // 🔥 STOP THE NOISY SOUND
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  }, []);
+
+  // Make sure the alarm never keeps ringing after the component unmounts
+  useEffect(() => () => {
+    if (alarmTimerRef.current) clearTimeout(alarmTimerRef.current);
+    if (audioRef.current) audioRef.current.pause();
+  }, []);
 
   const addNotif = useCallback(({ title, body, icon = "📢", type = "info", actionTab = null }) => {
     const id = uid();
@@ -478,21 +496,16 @@ function useNotifications(user) {
           console.log("Audio blocked by browser. You must interact with the page first before sound can play.", e);
         });
       }
+
+      // ⏱️ AUTO-STOP: silence the alarm after 30 seconds (restarts if a new urgent alert arrives)
+      if (alarmTimerRef.current) clearTimeout(alarmTimerRef.current);
+      alarmTimerRef.current = setTimeout(stopSound, ALARM_MAX_MS);
     } else {
       // Normal silent toast for non-urgent things
       setToasts(prev => [...prev.slice(-4), { id, title, body, icon, type, actionTab }]);
       setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000);
     }
-  }, []);
-
-  const stopSound = useCallback(() => {
-    setUrgentAlert(null); // Hide the urgent modal
-    // 🔥 STOP THE NOISY SOUND
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-  }, []);
+  }, [stopSound]);
 
   const dismissToast = useCallback((id) => setToasts(prev => prev.filter(t => t.id !== id)), []);
   
