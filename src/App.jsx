@@ -26,6 +26,12 @@ const GLOBAL_CSS = `
     letter-spacing: -0.01em;
   }
 
+  /* Admin dashboard engineer list: 5 boxes in one row on desktop, fewer on smaller screens */
+  .eng-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 24px; }
+  @media (max-width: 1200px) { .eng-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 760px)  { .eng-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 480px)  { .eng-grid { grid-template-columns: minmax(0, 1fr); } }
+
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: #0A0A0A; }
   ::-webkit-scrollbar-thumb { background: #2A2416; border-radius: 4px; }
@@ -1627,7 +1633,7 @@ function AdminReviewModal({ item, type, onClose, onApprove, onReject, onComment,
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
       <Card style={{ width: "100%", maxWidth: 420, maxHeight: "90vh", overflowY: "auto" }}>
-        <h3 style={{ margin: "0 0 16px", fontSize: 18, fontWeight: 700 }}>Review {type === "request" ? "Fund Request" : "Expense"}</h3>
+        <h3 style={{ margin: "0 0 16px", fontSize: 18, fontWeight: 700 }}>Review {type === "expense" ? "Expense" : "Fund Request"}</h3>
         <div style={{ background: "var(--input-bg)", padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 13, color: "var(--text-main)" }}>
           <strong>Engineer:</strong> {item.engineerName}<br />
           <strong>Reason:</strong> {item.reason || item.description}<br />
@@ -1963,7 +1969,7 @@ function CommentModal({ item, onSave, onClose }) {
 }
 
 function ConfirmDeleteModal({ item, itemType, onConfirm, onClose }) {
-  const label = itemType === "request" ? `fund request of ${fmt(item.amount)}` : itemType === "received" ? `received fund of ${fmt(item.amount)}` : `expense "${item.description}" (${fmt(item.amount)})`;
+  const label = itemType === "request" ? (item.source === "direct" ? `received fund of ${fmt(item.amount)}` : `fund request of ${fmt(item.amount)}`) : itemType === "received" ? `received fund of ${fmt(item.amount)}` : `expense "${item.description}" (${fmt(item.amount)})`;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
       <Card style={{ width: "100%", maxWidth: 360 }}>
@@ -2068,10 +2074,81 @@ function ExpenseList({ expenses, onEdit, onComment, onViewAttachment, onReview, 
   );
 }
 
-function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete, isReadOnly }) {
+// Engineer records money the admin sent WITHOUT a fund request. It is stored in the same
+// "requests" collection (status approved, source "direct") so balances and the admin's
+// Distributed total include it immediately; the admin can then Verify it.
+function DirectFundForm({ user, onSubmit, onClose }) {
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(today());
+  const [note, setNote] = useState("");
+  const [from, setFrom] = useState("");          // "Mubashir" | "Boban" | "Other"
+  const [otherName, setOtherName] = useState("");
+  const [err, setErr] = useState(false);
+
+  const submit = () => {
+    const amt = parseFloat(amount);
+    const receivedFrom = from === "Other" ? otherName.trim() : from;
+    if (!amt || amt <= 0 || !date || !receivedFrom) { setErr(true); return; }
+    onSubmit({
+      id: uid(), engineerId: user.id, engineerName: user.name,
+      receivedFrom,
+      amount: amt, reason: note.trim() || `Fund received directly from ${receivedFrom} (no request)`,
+      breakdown: {}, category: "multiple", customer: "",
+      status: "approved", source: "direct", verified: false,
+      date, createdAt: Date.now(), type: "direct_fund",
+    });
+    onClose();
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+      <Card style={{ width: "100%", maxWidth: 420 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>💵 Add Received Fund</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--text-light)" }}>✕</button>
+        </div>
+        <p style={{ margin: "0 0 16px", fontSize: 12, color: "var(--text-muted)" }}>
+          Use this when the admin sent you money without a fund request. It is added to your balance now and the admin will verify it.
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Amount (₹) *">
+            <input type="number" value={amount} onChange={e => { setAmount(e.target.value); setErr(false); }} placeholder="0.00" style={inputStyle} />
+          </Field>
+          <Field label="Date received *">
+            <input type="date" value={date} max={today()} onChange={e => { setDate(e.target.value); setErr(false); }} style={inputStyle} />
+          </Field>
+        </div>
+        <Field label="Received From *">
+          <select value={from} onChange={e => { setFrom(e.target.value); setErr(false); }} style={inputStyle}>
+            <option value="">Select...</option>
+            <option value="Mubashir">Mubashir</option>
+            <option value="Boban">Boban</option>
+            <option value="Other">Other</option>
+          </select>
+        </Field>
+        {from === "Other" && (
+          <Field label="Name *">
+            <input value={otherName} onChange={e => { setOtherName(e.target.value); setErr(false); }} placeholder="Enter name" style={inputStyle} />
+          </Field>
+        )}
+        <Field label="Note (optional)">
+          <input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. UPI / cash / purpose" style={inputStyle} />
+        </Field>
+        {err && <div style={{ color: "#EF4444", fontSize: 12, marginBottom: 8 }}>⚠️ Enter an amount greater than 0, a date{from === "Other" ? " and the name" : " and who it was received from"}.</div>}
+        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+          <Button onClick={onClose} variant="ghost" style={{ flex: 1, border: "1px solid var(--border)" }}>Cancel</Button>
+          <Button onClick={submit} style={{ flex: 1 }}>Add Fund</Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete, onVerify, isReadOnly }) {
   const filtered = requests
     .filter(r => {
       if (!isAdmin && r.engineerId !== engineerId) return false;
+      if (!isAdmin && r.source === "direct") return false; // engineers see these in their Received Fund tab
       if (!inRange(r.date, filter.dateRange || { mode: "all" })) return false;
       if (filter.status !== "all" && r.status !== filter.status) return false;
       if (isAdmin && filter.engineer && r.engineerId !== filter.engineer) return false;
@@ -2110,12 +2187,22 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
                   ) : (
                     <span style={{ fontWeight: 700, fontSize: 15, color: "#D4A017" }}>{fmt(req.amount)}</span>
                   )}
-                  <Badge status={req.status} />
+                  {req.source === "direct" ? (
+                    <>
+                      <span style={{ fontSize: 10, background: "#DBEAFE", color: "#1E40AF", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>💵 DIRECT FUND</span>
+                      {req.status === "rejected"
+                        ? <Badge status="rejected" />
+                        : req.verified
+                          ? <span style={{ fontSize: 10, background: "#D1FAE5", color: "#065F46", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>✔ VERIFIED</span>
+                          : <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>⏳ UNVERIFIED</span>}
+                    </>
+                  ) : <Badge status={req.status} />}
                   {wasEdited && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>EDITED</span>}
                 </div>
                 
                 <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{req.reason}</div>
                 {req.customer && <div style={{ fontSize: 12, color: "#7C3AED", fontWeight: 600, marginTop: 2 }}>👥 {req.customer}</div>}
+                {req.source === "direct" && req.receivedFrom && <div style={{ fontSize: 12, color: "#7C3AED", fontWeight: 600, marginTop: 2 }}>👤 Received from: {req.receivedFrom}</div>}
                 {isAdmin && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 2 }}>By: {req.engineerName} · {req.date}</div>}
                 {(() => {
                   const last = hasEditLog ? [...req.editLog].reverse().find(e => e.comment) : null;
@@ -2127,6 +2214,7 @@ function RequestList({ requests, isAdmin, engineerId, filter, onReview, onDelete
                 })()}
               </div>
               <div style={{ flexShrink: 0, display: "flex", gap: 6 }}>
+                {!isReadOnly && isAdmin && req.source === "direct" && req.status !== "rejected" && !req.verified && onVerify && <Button small variant="success" onClick={() => onVerify(req)}>✔ Verify</Button>}
                 {!isReadOnly && isAdmin && req.status !== "rejected" && <Button small variant="primary" onClick={() => onReview(req)}>{req.status === "approved" ? "Edit" : "Review"}</Button>}
                 {!isReadOnly && isAdmin && <Button small variant="danger" onClick={() => onDelete(req)}>🗑️</Button>}
               </div>
@@ -2241,7 +2329,7 @@ function EngineerGrid({ expenses, requests, dashFilter, engineers, onViewEnginee
   const mExps = expenses.filter(e => inRange(e.date, dashFilter));
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14, marginBottom: 24 }}>
+    <div className="eng-grid">
       {engineers.map(eng => {
         const engReqs = mReqs.filter(r => r.engineerId === eng.id);
         const engExps = mExps.filter(e => e.engineerId === eng.id);
@@ -2270,7 +2358,7 @@ function EngineerGrid({ expenses, requests, dashFilter, engineers, onViewEnginee
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Funds Distributed</span><span style={{ color: "#10B981", fontWeight: 700 }}>{fmt(funds)}</span></div>
               {showPrev && (
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, textAlign: "left" }}>
-                  <span style={{ color: "var(--text-muted)", whiteSpace: "nowrap", textAlign: "left" }}>
+                  <span style={{ color: "var(--text-muted)", textAlign: "left", minWidth: 0 }}>
                     {prevBal < 0 ? "Prev. Reimbursement" : "Prev. Balance"}
                   </span>
                   <span style={{ color: prevBal < 0 ? "#EF4444" : "#D4A017", fontWeight: 700, whiteSpace: "nowrap" }}>{fmt(prevBal)}</span>
@@ -2318,6 +2406,7 @@ export default function App() {
 
   const [tab, setTab] = useState("dashboard");
   const [showFundForm, setShowFundForm] = useState(false);
+  const [showDirectFundForm, setShowDirectFundForm] = useState(false);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [showReceivedFundModal, setShowReceivedFundModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
@@ -2381,11 +2470,15 @@ export default function App() {
           data.forEach(req => {
             const prev = prevMap[req.id];
             if (!prev) {
-              if (user.role === "admin") {
+              if (user.role === "admin" && req.source === "direct") {
+                addNotif({ title: "💵 Fund Recorded by Engineer", body: `${req.engineerName} added ₹${Number(req.amount).toLocaleString("en-IN")} received directly${req.receivedFrom ? ` from ${req.receivedFrom}` : ""} — please verify`, icon: "💵", type: "urgent", actionTab: "requests" });
+              } else if (user.role === "admin") {
                 // Swiggy alert for admin
                 addNotif({ title: "💰 New Fund Request", body: `${req.engineerName} requested ₹${Number(req.amount).toLocaleString("en-IN")} — ${req.reason}`, icon: "💰", type: "urgent", actionTab: "requests" });
               }
-            } else if (prev.status !== req.status && req.engineerId === user.id) {
+            } else if (req.source === "direct" && !prev.verified && req.verified && req.engineerId === user.id) {
+              addNotif({ title: "✔ Fund Verified", body: `Admin verified your received fund of ₹${Number(req.amount).toLocaleString("en-IN")}.`, icon: "✔", type: "success" });
+            } else if (prev.status !== req.status && req.engineerId === user.id && req.source !== "direct") {
               if (req.status === "approved") {
                 addNotif({ title: "✅ Fund Request Approved", body: `Your request for ₹${Number(req.amount).toLocaleString("en-IN")} was approved!`, icon: "✅", type: "success" });
               } else if (req.status === "rejected") {
@@ -2518,19 +2611,31 @@ export default function App() {
   const deleteExpense = async (id) => await deleteDoc(doc(db, "expenses", id));
   const deleteRequest = async (id) => await deleteDoc(doc(db, "requests", id));
 
+  // Admin confirms that an engineer-recorded (direct) fund really was received
+  const verifyDirectFund = async (req) => {
+    try {
+      await updateDoc(doc(db, "requests", req.id), { verified: true, verifiedAt: Date.now(), verifiedBy: user?.name || "Admin" });
+    } catch (err) {
+      console.error("Verify failed:", err);
+      alert(`Could not verify: ${err.message || err}`);
+    }
+  };
+
   const pendingReqCount = requests.filter(r => r.status === "pending").length;
+  const unverifiedFundCount = requests.filter(r => r.source === "direct" && r.status === "approved" && !r.verified).length;
   const pendingExpCount = expenses.filter(e => e.status === "pending").length;
 
   const adminTabs = [
     { id: "dashboard", label: "Dashboard", icon: "📊" },
     { id: "received", label: "Received Funds", icon: "💵" },
-    { id: "requests", label: `Requests${pendingReqCount ? ` (${pendingReqCount})` : ""}`, icon: "📋" },
+    { id: "requests", label: `Requests${(pendingReqCount + unverifiedFundCount) ? ` (${pendingReqCount + unverifiedFundCount})` : ""}`, icon: "📋" },
     { id: "expenses", label: `Expenses${pendingExpCount ? ` (${pendingExpCount})` : ""}`, icon: "🧾" },
     { id: "database", label: "Database", icon: "🗄️" },
   ];
   const engTabs = [
     { id: "dashboard", label: "Dashboard", icon: "📊" },
     { id: "requests", label: "Fund Requests", icon: "💰" },
+    { id: "received", label: "Received Fund", icon: "💵" },
     { id: "expenses", label: "My Expenses", icon: "🧾" },
   ];
   const tabs = (user.role === "admin" && !viewingAsEngineer) ? adminTabs : engTabs;
@@ -2845,6 +2950,76 @@ export default function App() {
           </>
         )}
 
+        {/* ── RECEIVED FUND (engineer): money sent by admin without a request ── */}
+        {tab === "received" && !isAdmin && (() => {
+          const myDirect = requests
+            .filter(r => r.source === "direct" && r.engineerId === activeUser.id && inRange(r.date, tabDateFilter))
+            .sort((a, b) => (new Date(b.date || 0) - new Date(a.date || 0)) || ((b.createdAt || 0) - (a.createdAt || 0)));
+          const counted = myDirect.filter(r => r.status === "approved");
+          const total = counted.reduce((s, r) => s + r.amount, 0);
+          const verifiedTotal = counted.filter(r => r.verified).reduce((s, r) => s + r.amount, 0);
+          const unverifiedTotal = total - verifiedTotal;
+          return (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+                <div>
+                  <h2 style={{ margin: "0 0 2px", fontSize: 22, fontWeight: 800 }}>💵 Received Fund</h2>
+                  <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>Funds the admin sent you without a request</p>
+                </div>
+                {!isReadOnly && <Button onClick={() => setShowDirectFundForm(true)}>+ Add Received Fund</Button>}
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14, marginBottom: 20 }}>
+                {[
+                  { label: "Total Received", value: fmt(total), icon: "💵", color: "#10B981" },
+                  { label: "Verified by Admin", value: fmt(verifiedTotal), icon: "✔", color: "#10B981" },
+                  { label: "Awaiting Verification", value: fmt(unverifiedTotal), icon: "⏳", color: "#F59E0B" },
+                ].map(c => (
+                  <Card key={c.label} style={{ padding: "16px 18px" }}>
+                    <div style={{ fontSize: 22, marginBottom: 6 }}>{c.icon}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: c.color }}>{c.value}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 2 }}>{c.label}</div>
+                  </Card>
+                ))}
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <DateRangeFilter filter={tabDateFilter} onChange={setTabDateFilter} allMonths={allMonths} />
+              </div>
+
+              <Card>
+                {myDirect.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-light)", fontSize: 14 }}>No received funds recorded.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {myDirect.map(r => (
+                      <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", background: "var(--input-bg)", borderRadius: 12, border: "1px solid var(--border)" }}>
+                        <div style={{ width: 40, height: 40, borderRadius: 10, background: "rgba(16,185,129,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>💵</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 2 }}>
+                            <span style={{ fontWeight: 700, fontSize: 15, color: "#D4A017" }}>{fmt(r.amount)}</span>
+                            {r.status === "rejected"
+                              ? <Badge status="rejected" />
+                              : r.verified
+                                ? <span style={{ fontSize: 10, background: "#D1FAE5", color: "#065F46", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>✔ VERIFIED</span>
+                                : <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>⏳ AWAITING VERIFICATION</span>}
+                          </div>
+                          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{r.reason}</div>
+                          {r.receivedFrom && <div style={{ fontSize: 12, color: "#7C3AED", fontWeight: 600, marginTop: 2 }}>👤 Received from: {r.receivedFrom}</div>}
+                          <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 2 }}>{r.date}{r.verified && r.verifiedBy ? ` · verified by ${r.verifiedBy}` : ""}</div>
+                        </div>
+                        {!isReadOnly && !r.verified && r.status !== "rejected" && (
+                          <Button small variant="danger" onClick={() => { setDeleteItem(r); setDeleteItemType("request"); }}>🗑️</Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            </>
+          );
+        })()}
+
         {/* ── FUND REQUESTS ── */}
         {tab === "requests" && (
           <>
@@ -2857,6 +3032,7 @@ export default function App() {
               <RequestList requests={requests} isAdmin={isAdmin} engineerId={activeUser.id}
                 filter={{ dateRange: tabDateFilter, status: filterStatus, engineer: filterEngineer }}
                 onReview={req => setReviewItem(req)}
+                onVerify={verifyDirectFund}
                 onDelete={req => { setDeleteItem(req); setDeleteItemType("request"); }} 
                 isReadOnly={isReadOnly} />
             </Card>
@@ -2897,6 +3073,7 @@ export default function App() {
       </div>
 
       {/* ── MODALS ── */}
+      {showDirectFundForm && !isReadOnly && !isAdmin && <DirectFundForm user={activeUser} onSubmit={addRequest} onClose={() => setShowDirectFundForm(false)} />}
       {showFundForm && !isReadOnly && <FundRequestForm user={activeUser} onSubmit={addRequest} onClose={() => setShowFundForm(false)} customers={customers} />}
       {showExpenseForm && !isReadOnly && <ExpenseForm user={activeUser} availableBalance={editExpense ? availableBalance + editExpense.amount : availableBalance} onSubmit={addExpense} onClose={() => { setShowExpenseForm(false); setEditExpense(null); }} editItem={editExpense} customers={customers} />}
       {showReceivedFundModal && isAdmin && <ReceivedFundModal onSave={saveReceivedFund} onClose={() => { setShowReceivedFundModal(false); setEditReceivedFund(null); }} editItem={editReceivedFund} />}
