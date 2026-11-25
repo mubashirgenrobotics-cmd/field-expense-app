@@ -92,6 +92,22 @@ function rangeLabel(f) {
   return "All time";
 }
 
+// Word used in labels for the filtered window: "Month" for a month filter, "Period" for a custom range.
+const periodWord = (f) => (f?.mode === "month" ? "Month" : "Period");
+
+// Cumulative (approved funds − approved bills) of everything BEFORE the selected month.
+function carryOverBefore(requests, expenses, engineerId, f) {
+  if (f?.mode !== "month" || !f.month) return 0;
+  const before = (d) => !!d && monthOf(d) < f.month;
+  const funds = requests
+    .filter(r => r.engineerId === engineerId && r.status === "approved" && before(r.date))
+    .reduce((sum, r) => sum + r.amount, 0);
+  const bills = expenses
+    .filter(e => e.engineerId === engineerId && e.status === "approved" && before(e.date))
+    .reduce((sum, e) => sum + e.amount, 0);
+  return funds - bills;
+}
+
 function fileToBase64(file) {
   return new Promise((res, rej) => {
     const r = new FileReader();
@@ -2235,19 +2251,12 @@ function EngineerGrid({ expenses, requests, dashFilter, engineers, onViewEnginee
 
         // Carry-over: cumulative balance / reimbursement of ALL months before the selected month
         const showPrev = dashFilter?.mode === "month" && !!dashFilter.month;
-        let prevBal = 0;
-        if (showPrev) {
-          const before = (d) => !!d && monthOf(d) < dashFilter.month;
-          const prevFunds = requests
-            .filter(r => r.engineerId === eng.id && r.status === "approved" && before(r.date))
-            .reduce((sum, r) => sum + r.amount, 0);
-          const prevBills = expenses
-            .filter(e => e.engineerId === eng.id && e.status === "approved" && before(e.date))
-            .reduce((sum, e) => sum + e.amount, 0);
-          prevBal = prevFunds - prevBills;
-        }
-        // Balance = carry-over from all earlier months + this month's funds − bills
-        const bal = prevBal + funds - approvedBills;
+        const prevBal = carryOverBefore(requests, expenses, eng.id, dashFilter);
+        // This month / period on its own: funds − approved bills (negative = reimbursement due)
+        const isFiltered = dashFilter?.mode !== "all";
+        const monthBal = funds - approvedBills;
+        // Closing balance = carry-over from all earlier months + this month's funds − bills
+        const bal = prevBal + monthBal;
         return (
           <Card key={eng.id} style={{ padding: 16, cursor: "pointer", transition: "transform 0.15s" }} onClick={() => onViewEngineer(eng)} onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"} onMouseLeave={e => e.currentTarget.style.transform = "none"}>
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
@@ -2269,7 +2278,19 @@ function EngineerGrid({ expenses, requests, dashFilter, engineers, onViewEnginee
               )}
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Submitted Bills</span><span style={{ color: "#EF4444", fontWeight: 700 }}>{fmt(approvedBills)}</span></div>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-muted)" }}>Pending Bills</span><span style={{ color: "#F59E0B", fontWeight: 700 }}>{fmt(pendingBills)}</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, borderTop: "1px solid var(--border)" }}><span style={{ color: "var(--text-main)", fontWeight: 600 }}>Balance</span><span style={{ color: bal < 0 ? "#EF4444" : "#D4A017", fontWeight: 700 }}>{fmt(bal)}</span></div>
+              {isFiltered && (
+                <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, borderTop: "1px solid var(--border)" }}>
+                  <span style={{ color: "var(--text-main)", fontWeight: 600 }}>{periodWord(dashFilter)} {monthBal < 0 ? "Reimbursement" : "Balance"}</span>
+                  <span style={{ color: monthBal < 0 ? "#EF4444" : "#D4A017", fontWeight: 700 }}>{fmt(monthBal)}</span>
+                </div>
+              )}
+              {/* Closing balance: shown unfiltered, or when a month filter adds carry-over (otherwise it equals the line above) */}
+              {(!isFiltered || showPrev) && (
+                <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, borderTop: "1px solid var(--border)" }}>
+                  <span style={{ color: "var(--text-main)", fontWeight: 600 }}>{showPrev ? "Closing " : ""}{bal < 0 ? "Reimbursement" : "Balance"}</span>
+                  <span style={{ color: bal < 0 ? "#EF4444" : "#D4A017", fontWeight: 700 }}>{fmt(bal)}</span>
+                </div>
+              )}
             </div>
           </Card>
         );
@@ -2410,6 +2431,11 @@ export default function App() {
   const periodMyExpenses = myExpenses.filter(e => inRange(e.date, dashFilter));
   const periodApprovedFunds = periodMyRequests.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
   const periodApprovedExpenses = periodMyExpenses.filter(e => e.status === "approved").reduce((s, e) => s + e.amount, 0);
+  const periodNet = periodApprovedFunds - periodApprovedExpenses;                       // this month / period only
+  const periodPrevBal = carryOverBefore(requests, expenses, activeUser.id, dashFilter); // earlier months (month filter only)
+  const periodClosing = periodPrevBal + periodNet;
+  const ledgerFiltered = dashFilter.mode !== "all";
+  const ledgerShowPrev = dashFilter.mode === "month" && !!dashFilter.month;
 
   const allMonths = Array.from(new Set([
     ...expenses.map(e => monthOf(e.date)),
@@ -2738,7 +2764,15 @@ export default function App() {
                     {[
                       { label: "Approved Funds", value: fmt(periodApprovedFunds), color: "#10B981", icon: "💰" },
                       { label: "Approved Expenses", value: fmt(periodApprovedExpenses), color: "#EF4444", icon: "🧾" },
-                      { label: "Balance", value: fmt(periodApprovedFunds - periodApprovedExpenses), color: (periodApprovedFunds - periodApprovedExpenses) < 0 ? "#EF4444" : "#D4A017", icon: "📊" },
+                      ...(ledgerFiltered ? [
+                        { label: `${periodWord(dashFilter)} ${periodNet < 0 ? "Reimbursement" : "Balance"}`, value: fmt(periodNet), color: periodNet < 0 ? "#EF4444" : "#D4A017", icon: "📊" },
+                        ...(ledgerShowPrev ? [
+                          { label: periodPrevBal < 0 ? "Prev. Reimbursement" : "Prev. Balance", value: fmt(periodPrevBal), color: periodPrevBal < 0 ? "#EF4444" : "#D4A017", icon: "⏮️" },
+                          { label: `Closing ${periodClosing < 0 ? "Reimbursement" : "Balance"}`, value: fmt(periodClosing), color: periodClosing < 0 ? "#EF4444" : "#D4A017", icon: "🧮" },
+                        ] : []),
+                      ] : [
+                        { label: periodNet < 0 ? "Reimbursement" : "Balance", value: fmt(periodNet), color: periodNet < 0 ? "#EF4444" : "#D4A017", icon: "📊" },
+                      ]),
                     ].map(item => (
                       <div key={item.label} style={{ background: "var(--input-bg)", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
                         <div style={{ fontSize: 22, marginBottom: 4 }}>{item.icon}</div>
